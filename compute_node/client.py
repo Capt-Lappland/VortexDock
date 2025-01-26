@@ -38,6 +38,10 @@ class DockingClient:
         self.work_dir = Path('work_dir')
         self.work_dir.mkdir(exist_ok=True)
         
+        # 创建receptor缓存目录
+        self.receptor_cache_dir = Path('receptor_cache')
+        self.receptor_cache_dir.mkdir(exist_ok=True)
+        
         # 初始化SSL上下文和安全套接字
         self.ssl_context = SSLContextManager().get_client_context()
         self.sock = None
@@ -128,6 +132,18 @@ class DockingClient:
         """下载输入文件，支持自动重试"""
         logger.info(f"Downloading input file: {filename} for task {task_id}")
         retries = 0
+        
+        # 如果是receptor文件，先检查缓存
+        if filename == 'receptor.pdbqt':
+            cached_receptor = self.receptor_cache_dir / f"{task_id}_receptor.pdbqt"
+            if cached_receptor.exists():
+                logger.info(f"Using cached receptor file for task {task_id}")
+                task_dir = self.work_dir / str(task_id)
+                task_dir.mkdir(exist_ok=True)
+                receptor_dest = task_dir / filename
+                shutil.copy2(cached_receptor, receptor_dest)
+                return receptor_dest
+        
         while retries < self.max_retries:
             try:
                 task_dir = self.work_dir / str(task_id)
@@ -151,6 +167,13 @@ class DockingClient:
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
+                
+                # 如果是receptor文件，保存到缓存
+                if filename == 'receptor.pdbqt':
+                    cached_receptor = self.receptor_cache_dir / f"{task_id}_receptor.pdbqt"
+                    shutil.copy2(input_path, cached_receptor)
+                    logger.info(f"Cached receptor file for task {task_id}")
+                
                 return input_path
             
             except (requests.exceptions.RequestException, IOError) as e:
