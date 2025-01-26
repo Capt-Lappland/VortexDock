@@ -10,7 +10,7 @@ DB_CONFIG = {
 
 # 服务器配置
 SERVER_CONFIG = {
-    'host': 'localhost',
+    'host': 'captlappland.cn',
     'http_port': 9000,
     'tcp_port': 10020,
     'password': 'Wg121212'  # 服务器密码，通过 CLI 设置
