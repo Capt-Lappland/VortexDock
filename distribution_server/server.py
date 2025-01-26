@@ -225,6 +225,9 @@ class TCPServer:
                         c = conn.cursor()
                         
                         try:
+                            # 开始事务
+                            conn.start_transaction()
+                            
                             # 首先获取一个待处理的任务，优先选择进行中的任务
                             c.execute('''
                                 SELECT id,
@@ -239,6 +242,7 @@ class TCPServer:
                                         WHEN 'pending' THEN 1
                                     END,
                                     created_at ASC LIMIT 1
+                                FOR UPDATE
                             ''')
                             task = c.fetchone()
                             
@@ -248,12 +252,13 @@ class TCPServer:
                                  size_x, size_y, size_z,
                                  num_modes, energy_range, cpu) = task
                                 
-                                # 从该任务的配体表中获取一个待处理的配体
+                                # 从该任务的配体表中获取一个待处理的配体，使用行级锁
                                 c.execute(f'''
                                     SELECT ligand_id, ligand_file 
                                     FROM task_{task_id}_ligands 
                                     WHERE status = 'pending' 
                                     ORDER BY created_at ASC LIMIT 1
+                                    FOR UPDATE
                                 ''')
                                 ligand = c.fetchone()
                                 
@@ -267,6 +272,8 @@ class TCPServer:
                                         SET status = 'processing', last_updated = CURRENT_TIMESTAMP 
                                         WHERE ligand_id = %s
                                     ''', (ligand_id,))
+                                    # 提交事务
+                                    # 提交事务
                                     conn.commit()
                                     
                                     response = {
@@ -290,6 +297,8 @@ class TCPServer:
                                     # 如果该任务的所有配体都已处理完，将任务标记为已完成
                                     c.execute('UPDATE tasks SET status = %s WHERE id = %s',
                                             ('completed', task_id))
+                                    # 提交事务
+                                    # 提交事务
                                     conn.commit()
                                     response = {'task_id': None}
                             else:
