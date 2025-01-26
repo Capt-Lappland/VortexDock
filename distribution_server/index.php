@@ -88,8 +88,7 @@ function getNodePerformance($conn) {
                           FROM task_{$task_id}_ligands
                           WHERE status = 'completed'
                           AND last_updated >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-                          GROUP BY FLOOR(UNIX_TIMESTAMP(last_updated) / 300) * 300
-                          ORDER BY minute ASC";
+                          GROUP BY FLOOR(UNIX_TIMESTAMP(last_updated) / 300) * 300";
     }
     
     // 执行合并查询
