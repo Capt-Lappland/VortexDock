@@ -43,6 +43,11 @@ class DockingClient:
         self.sock = None
         self.secure_sock = None
         
+        # 初始化缓存相关变量
+        self.cache_lock = threading.Lock()
+        self.next_task = None
+        self.next_task_files = {}
+        
         # 连接并验证
         if not self.connect_tcp():
             raise ConnectionError("无法连接到服务器")
@@ -207,6 +212,7 @@ class DockingClient:
                 retries += 1
                 logger.error(f"HTTP upload attempt {retries} failed: {e}")
                 if retries < self.max_retries:
+                    logger.debug(f"Retrying upload in {self.retry_delay} seconds")
                     time.sleep(self.retry_delay)
         
         return False
@@ -270,6 +276,36 @@ class DockingClient:
             logger.error(f"Vina execution failed: {e}")
             return None
     
+    def _start_precache_thread(self):
+        """启动预缓存线程，提前获取和下载下一个任务的文件"""
+        def precache_worker():
+            while True:
+                try:
+                    # 获取下一个任务
+                    with self.cache_lock:
+                        if self.next_task is None:
+                            next_task = self.get_task()
+                            if next_task.get('task_id') is not None:
+                                self.next_task = next_task
+                                # 预下载文件
+                                receptor_file = self.download_input(next_task['task_id'], 'receptor.pdbqt')
+                                ligand_file = self.download_input(next_task['task_id'], next_task['ligand_file'])
+                                if receptor_file and ligand_file:
+                                    self.next_task_files = {
+                                        'receptor_file': receptor_file,
+                                        'ligand_file': ligand_file
+                                    }
+                                    logger.info(f"Precached files for next task {next_task['task_id']}")
+                except Exception as e:
+                    logger.error(f"Error in precache thread: {e}")
+                time.sleep(5)
+
+        # 创建并启动预缓存线程
+        precache_thread = threading.Thread(target=precache_worker)
+        precache_thread.daemon = True
+        precache_thread.start()
+        logger.info("Precache thread started")
+
     def run(self):
         """运行计算节点主循环"""
         logger.info("Starting compute node...")
@@ -281,18 +317,27 @@ class DockingClient:
         
         while True:
             try:
-                # 获取任务
-                task = self.get_task()
+                # 检查是否有预缓存的任务
+                with self.cache_lock:
+                    if self.next_task is not None:
+                        task = self.next_task
+                        files = self.next_task_files
+                        self.next_task = None
+                        self.next_task_files = {}
+                    else:
+                        task = self.get_task()
+                        files = {}
+
                 if task.get('task_id') is None:
                     time.sleep(5)
                     continue
-                
+
                 logger.info(f"Received task {task['task_id']}")
-                
-                # 下载所需文件
-                receptor_file = self.download_input(task['task_id'], 'receptor.pdbqt')
-                ligand_file = self.download_input(task['task_id'], task['ligand_file'])
-                
+
+                # 使用预缓存的文件或下载所需文件
+                receptor_file = files.get('receptor_file') or self.download_input(task['task_id'], 'receptor.pdbqt')
+                ligand_file = files.get('ligand_file') or self.download_input(task['task_id'], task['ligand_file'])
+
                 if not all([receptor_file, ligand_file]):
                     logger.error("Failed to download required files")
                     continue
