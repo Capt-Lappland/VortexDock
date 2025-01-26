@@ -51,6 +51,7 @@ class DockingClient:
         
         # 初始化缓存相关变量
         self.cache_lock = threading.Lock()
+        self.sock_lock = threading.Lock()  # 添加套接字锁
         self.next_task = None
         self.next_task_files = {}
         
@@ -403,11 +404,12 @@ class DockingClient:
                     # 获取CPU使用率
                     cpu_usage = self.psutil.cpu_percent(interval=1)
                     # 发送心跳包
-                    self.secure_sock.send_message({
+                    with self.sock_lock:
+                        self.secure_sock.send_message({
                         'type': 'heartbeat',
                         'cpu_usage': cpu_usage
                     })
-                    response = self.secure_sock.receive_message()
+                        response = self.secure_sock.receive_message()
                     if not response or response.get('status') != 'ok':
                         logger.warning("Heartbeat failed, attempting to reconnect...")
                         if not self.connect_tcp():
