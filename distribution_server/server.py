@@ -52,6 +52,19 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
+    # 创建计算节点心跳表
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS node_heartbeats (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            client_addr VARCHAR(255) NOT NULL,
+            cpu_usage FLOAT NOT NULL,
+            last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_client_addr (client_addr),
+            INDEX idx_last_heartbeat (last_heartbeat)
+        )
+    ''')
+    
     # 创建服务器认证表
     c.execute('''
         CREATE TABLE IF NOT EXISTS server_auth (
@@ -215,8 +228,23 @@ class TCPServer:
                         break
                     
                     if command['type'] == 'heartbeat':
-                        # 处理心跳消息
-                        secure_sock.send_message({'status': 'ok'})
+                        # 处理心跳消息和性能数据
+                        try:
+                            conn = get_db_connection()
+                            c = conn.cursor()
+                            
+                            # 更新节点心跳和性能数据
+                            c.execute('''
+                                INSERT INTO node_heartbeats (client_addr, cpu_usage, last_heartbeat)
+                                VALUES (%s, %s, CURRENT_TIMESTAMP)
+                            ''', (addr[0], command.get('cpu_usage', 0)))
+                            conn.commit()
+                            conn.close()
+                            
+                            secure_sock.send_message({'status': 'ok'})
+                        except Exception as e:
+                            logger.error(f"Error updating node heartbeat: {e}")
+                            secure_sock.send_message({'status': 'error'})
                         continue
                     elif command['type'] == 'get_task':
                         logger.debug(f"Client {addr} requesting task")

@@ -53,7 +53,7 @@ def list_tasks():
         print("没有找到任务")
     else:
         print("任务列表:")
-        print("ID\t状态\t进度\t\t创建时间")
+        print("ID\t状态\t进度\t\t速度(个/分钟)\t创建时间")
         for task in tasks:
             task_id = task[0]
             # 获取该任务的配体总数和已完成数
@@ -66,7 +66,17 @@ def list_tasks():
             progress = completed / total if total > 0 else 0
             progress_bar = create_progress_bar(progress)
             
-            print(f"{task_id}\t{task[1]}\t{progress_bar}\t{task[2]}")
+            # 计算最近5分钟的处理速度
+            c.execute(f'''
+                SELECT COUNT(*) 
+                FROM task_{task_id}_ligands 
+                WHERE status = 'completed' 
+                AND last_updated >= NOW() - INTERVAL 5 MINUTE
+            ''')
+            recent_completed = c.fetchone()[0]
+            speed = recent_completed / 5 if recent_completed > 0 else 0
+            
+            print(f"{task_id}\t{task[1]}\t{progress_bar}\t{speed:.1f}\t\t{task[2]}")
     
     conn.close()
 
@@ -272,6 +282,28 @@ def set_server_password(password):
     finally:
         conn.close()
 
+def reset_node_heartbeats():
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # 删除并重新创建node_heartbeats表
+    c.execute('DROP TABLE IF EXISTS node_heartbeats')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS node_heartbeats (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            client_addr VARCHAR(255) NOT NULL,
+            cpu_usage FLOAT NOT NULL,
+            last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_client_addr (client_addr),
+            INDEX idx_last_heartbeat (last_heartbeat)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print("计算节点心跳表已重置")
+
 def main():
     parser = argparse.ArgumentParser(description='分子对接任务管理工具')
     parser.add_argument('-ls', action='store_true', help='列出所有任务')
@@ -280,6 +312,7 @@ def main():
     parser.add_argument('-rm', help='删除指定的任务')
     parser.add_argument('-pause', help='暂停/恢复指定的任务')
     parser.add_argument('-set-password', help='设置服务器密码')
+    parser.add_argument('-reset-heartbeats', action='store_true', help='重置计算节点心跳表')
     
     args = parser.parse_args()
     
@@ -297,6 +330,8 @@ def main():
         pause_task(args.pause)
     elif args.set_password:
         set_server_password(args.set_password)
+    elif args.reset_heartbeats:
+        reset_node_heartbeats()
     else:
         parser.print_help()
 
