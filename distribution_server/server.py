@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import json
 import socket
@@ -17,6 +19,7 @@ import sys
 sys.path.append('..')
 from config import DB_CONFIG
 from utils.logger import logger
+from utils.network import SSLContextManager, SecureSocket
 
 # 导入连接池模块
 from mysql.connector import pooling
@@ -48,6 +51,16 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
+    
+    # 创建服务器认证表
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS server_auth (
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            password_hash VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     c.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id VARCHAR(255) PRIMARY KEY,
@@ -151,145 +164,172 @@ def upload_result_file(task_id, filename):
 
 # TCP 命令服务器
 class TCPServer:
-    def __init__(self, host='0.0.0.0', port=10010):
+    def __init__(self, host='0.0.0.0', port=10020):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.bind((host, port))
         self.sock.listen(5)
+        self.ssl_context = SSLContextManager().get_server_context()
+    
+    def verify_password(self, password):
+        """验证客户端提供的密码"""
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute('SELECT password_hash FROM server_auth ORDER BY created_at DESC LIMIT 1')
+            result = c.fetchone()
+            conn.close()
+            
+            if not result:
+                logger.warning("No server password set")
+                return True
+            
+            import bcrypt
+            stored_hash = result[0].encode() if isinstance(result[0], str) else result[0]
+            return bcrypt.checkpw(password.encode(), stored_hash)
+        except Exception as e:
+            logger.error(f"Error verifying password: {e}")
+            return False
     
     def handle_client(self, client_sock, addr):
         logger.info(f"Client {addr} connected")
-        while True:
-            try:
-                data = client_sock.recv(1024)
-                if not data:
-                    logger.info(f"Client {addr} disconnected")
-                    break
-                
-                command = json.loads(data.decode())
-                
-                if command['type'] == 'get_task':
-                    logger.debug(f"Client {addr} requesting task")
-                    # 获取待处理任务
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    
-                    try:
-                        # 首先获取一个待处理的任务，优先选择进行中的任务
-                        c.execute('''
-                            SELECT id,
-                            center_x, center_y, center_z,
-                            size_x, size_y, size_z,
-                            num_modes, energy_range, cpu
-                            FROM tasks 
-                            WHERE status IN ('pending', 'processing')
-                            ORDER BY 
-                                CASE status
-                                    WHEN 'processing' THEN 0
-                                    WHEN 'pending' THEN 1
-                                END,
-                                created_at ASC LIMIT 1
-                        ''')
-                        task = c.fetchone()
-                        
-                        if task:
-                            (task_id,
-                             center_x, center_y, center_z,
-                             size_x, size_y, size_z,
-                             num_modes, energy_range, cpu) = task
-                            
-                            # 从该任务的配体表中获取一个待处理的配体
-                            c.execute(f'''
-                                SELECT ligand_id, ligand_file 
-                                FROM task_{task_id}_ligands 
-                                WHERE status = 'pending' 
-                                ORDER BY created_at ASC LIMIT 1
-                            ''')
-                            ligand = c.fetchone()
-                            
-                            if ligand:
-                                ligand_id, ligand_file = ligand
-                                logger.info(f"Assigning task {task_id} ligand {ligand_id} to client {addr}")
-                                
-                                # 更新配体状态和时间戳
-                                c.execute(f'''
-                                    UPDATE task_{task_id}_ligands 
-                                    SET status = 'processing', last_updated = CURRENT_TIMESTAMP 
-                                    WHERE ligand_id = %s
-                                ''', (ligand_id,))
-                                conn.commit()
-                                
-                                response = {
-                                    'task_id': task_id,
-                                    'ligand_id': ligand_id,
-                                    'ligand_file': ligand_file,
-                                    'params': {
-                                        'center_x': center_x,
-                                        'center_y': center_y,
-                                        'center_z': center_z,
-                                        'size_x': size_x,
-                                        'size_y': size_y,
-                                        'size_z': size_z,
-                                        'num_modes': num_modes,
-                                        'energy_range': energy_range,
-                                        'cpu': cpu
-                                    }
-                                }
-                            else:
-                                logger.debug(f"No pending ligands for task {task_id}")
-                                # 如果该任务的所有配体都已处理完，将任务标记为已完成
-                                c.execute('UPDATE tasks SET status = %s WHERE id = %s',
-                                        ('completed', task_id))
-                                conn.commit()
-                                response = {'task_id': None}
-                        else:
-                            logger.debug("No pending tasks available")
-                            response = {'task_id': None}
-                    finally:
-                        conn.close()
-                    
-                    try:
-                        client_sock.send(json.dumps(response).encode())
-                    except socket.error as e:
-                        logger.error(f"Error sending response to client {addr}: {e}")
+        
+        # 将原始套接字包装为安全套接字
+        secure_sock = SecureSocket(client_sock, self.ssl_context)
+        
+        try:
+            # 等待客户端发送密码
+            auth_data = secure_sock.receive_message()
+            if not auth_data or auth_data.get('type') != 'auth' or not self.verify_password(auth_data.get('password', '')):
+                logger.warning(f"Authentication failed for client {addr}")
+                secure_sock.send_message({'status': 'error', 'message': '认证失败'})
+                return
+            
+            secure_sock.send_message({'status': 'ok'})
+            logger.info(f"Client {addr} authenticated successfully")
+            
+            while True:
+                try:
+                    command = secure_sock.receive_message()
+                    if not command:
+                        logger.info(f"Client {addr} disconnected")
                         break
-                
-                elif command['type'] == 'submit_result':
-                    task_id = command['task_id']
-                    ligand_id = command['ligand_id']
-                    logger.info(f"Client {addr} submitting result for task {task_id} ligand {ligand_id}")
                     
-                    try:
+                    if command['type'] == 'heartbeat':
+                        # 处理心跳消息
+                        secure_sock.send_message({'status': 'ok'})
+                        continue
+                    elif command['type'] == 'get_task':
+                        logger.debug(f"Client {addr} requesting task")
+                        # 获取待处理任务
                         conn = get_db_connection()
                         c = conn.cursor()
                         
-                        # 更新配体状态和结果
-                        c.execute(f'''
-                            UPDATE task_{task_id}_ligands 
-                            SET status = %s, output_file = %s, last_updated = CURRENT_TIMESTAMP 
-                            WHERE ligand_id = %s
-                        ''', ('completed', os.path.join('results', str(task_id), command['output_file']), ligand_id))
-                        conn.commit()
-                        conn.close()
-                        
-                        client_sock.send(json.dumps({'status': 'ok'}).encode())
-                    except Exception as e:
-                        logger.error(f"Error updating task status: {e}")
                         try:
-                            client_sock.send(json.dumps({'status': 'error'}).encode())
-                        except socket.error:
-                            break
-            
-            except (json.JSONDecodeError, socket.error) as e:
-                logger.error(f"Error handling client {addr}: {e}")
-                break
-            except Exception as e:
-                logger.error(f"Unexpected error handling client {addr}: {e}")
-                break
-        
-        try:
-            client_sock.close()
-        except:
-            pass
+                            # 首先获取一个待处理的任务，优先选择进行中的任务
+                            c.execute('''
+                                SELECT id,
+                                center_x, center_y, center_z,
+                                size_x, size_y, size_z,
+                                num_modes, energy_range, cpu
+                                FROM tasks 
+                                WHERE status IN ('pending', 'processing')
+                                ORDER BY 
+                                    CASE status
+                                        WHEN 'processing' THEN 0
+                                        WHEN 'pending' THEN 1
+                                    END,
+                                    created_at ASC LIMIT 1
+                            ''')
+                            task = c.fetchone()
+                            
+                            if task:
+                                (task_id,
+                                 center_x, center_y, center_z,
+                                 size_x, size_y, size_z,
+                                 num_modes, energy_range, cpu) = task
+                                
+                                # 从该任务的配体表中获取一个待处理的配体
+                                c.execute(f'''
+                                    SELECT ligand_id, ligand_file 
+                                    FROM task_{task_id}_ligands 
+                                    WHERE status = 'pending' 
+                                    ORDER BY created_at ASC LIMIT 1
+                                ''')
+                                ligand = c.fetchone()
+                                
+                                if ligand:
+                                    ligand_id, ligand_file = ligand
+                                    logger.info(f"Assigning task {task_id} ligand {ligand_id} to client {addr}")
+                                    
+                                    # 更新配体状态和时间戳
+                                    c.execute(f'''
+                                        UPDATE task_{task_id}_ligands 
+                                        SET status = 'processing', last_updated = CURRENT_TIMESTAMP 
+                                        WHERE ligand_id = %s
+                                    ''', (ligand_id,))
+                                    conn.commit()
+                                    
+                                    response = {
+                                        'task_id': task_id,
+                                        'ligand_id': ligand_id,
+                                        'ligand_file': ligand_file,
+                                        'params': {
+                                            'center_x': center_x,
+                                            'center_y': center_y,
+                                            'center_z': center_z,
+                                            'size_x': size_x,
+                                            'size_y': size_y,
+                                            'size_z': size_z,
+                                            'num_modes': num_modes,
+                                            'energy_range': energy_range,
+                                            'cpu': cpu
+                                        }
+                                    }
+                                else:
+                                    logger.debug(f"No pending ligands for task {task_id}")
+                                    # 如果该任务的所有配体都已处理完，将任务标记为已完成
+                                    c.execute('UPDATE tasks SET status = %s WHERE id = %s',
+                                            ('completed', task_id))
+                                    conn.commit()
+                                    response = {'task_id': None}
+                            else:
+                                logger.debug("No pending tasks available")
+                                response = {'task_id': None}
+                        finally:
+                            conn.close()
+                        
+                        secure_sock.send_message(response)
+                    
+                    elif command['type'] == 'submit_result':
+                        task_id = command['task_id']
+                        ligand_id = command['ligand_id']
+                        logger.info(f"Client {addr} submitting result for task {task_id} ligand {ligand_id}")
+                        
+                        try:
+                            conn = get_db_connection()
+                            c = conn.cursor()
+                            
+                            # 更新配体状态和结果
+                            c.execute(f'''
+                                UPDATE task_{task_id}_ligands 
+                                SET status = %s, output_file = %s, last_updated = CURRENT_TIMESTAMP 
+                                WHERE ligand_id = %s
+                            ''', ('completed', os.path.join('results', str(task_id), command['output_file']), ligand_id))
+                            conn.commit()
+                            conn.close()
+                            
+                            secure_sock.send_message({'status': 'ok'})
+                        except Exception as e:
+                            logger.error(f"Error updating task status: {e}")
+                            secure_sock.send_message({'status': 'error'})
+                
+                except Exception as e:
+                    logger.error(f"Unexpected error handling client {addr}: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"Error during authentication for client {addr}: {e}")
+        finally:
+            secure_sock.close()
     
     def start(self):
         while True:
@@ -321,4 +361,4 @@ if __name__ == '__main__':
     tcp_thread.start()
     
     # 启动 Flask 服务器
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=9000)
