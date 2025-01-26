@@ -1,0 +1,216 @@
+// monitor/js/charts.js
+
+// 严格模式
+'use strict';
+
+// 从DOM获取数据
+const chartDataElement = document.getElementById('chart-data');
+if (!chartDataElement) {
+    console.error('无法找到chart-data元素');
+    throw new Error('chart-data元素不存在');
+}
+
+let chartData;
+try {
+    chartData = {
+        queueStatus: JSON.parse(chartDataElement.dataset.queueStatus || '{}'),
+        throughput: JSON.parse(chartDataElement.dataset.throughput || '[]'),
+        daily: JSON.parse(chartDataElement.dataset.daily || '[]'),
+        hourly: JSON.parse(chartDataElement.dataset.hourly || '[]'),
+        minute: JSON.parse(chartDataElement.dataset.minute || '[]')
+    };
+} catch (error) {
+    console.error('解析图表数据失败:', error);
+    throw error;
+}
+
+// Chart.js 全局配置
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial';
+Chart.defaults.font.size = 12;
+Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.plugins.tooltip.cornerRadius = 6;
+
+// 通用图表配置
+const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: {
+            position: 'top',
+            labels: {
+                padding: 20,
+                usePointStyle: true,
+                pointStyle: 'circle',
+                font: { size: 12 }
+            }
+        },
+        tooltip: {
+            mode: 'index',
+            intersect: false,
+            titleFont: { size: 14 },
+            bodyFont: { size: 13 }
+        }
+    },
+    scales: {
+        y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(0, 0, 0, 0.1)', drawBorder: false },
+            ticks: {
+                padding: 10,
+                font: { size: 12 },
+                callback: value => value.toLocaleString()
+            }
+        },
+        x: {
+            grid: { display: false },
+            ticks: {
+                maxRotation: 45,
+                minRotation: 45,
+                padding: 10,
+                font: { size: 11 }
+            }
+        }
+    },
+    elements: {
+        line: { tension: 0.4, borderWidth: 2 },
+        point: { radius: 3, hitRadius: 10, hoverRadius: 5 }
+    }
+};
+
+// 初始化队列状态饼图
+function initQueueStatusChart() {
+    new Chart(document.getElementById('queueStatusChart'), {
+        type: 'pie',
+        data: {
+            labels: ['待处理', '处理中', '已完成', '失败'],
+            datasets: [{
+                data: [
+                    chartData.queueStatus.pending,
+                    chartData.queueStatus.processing,
+                    chartData.queueStatus.completed,
+                    chartData.queueStatus.failed
+                ],
+                backgroundColor: ['#2196F3', '#FFC107', '#4CAF50', '#F44336']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right' }
+            }
+        }
+    });
+}
+
+// 初始化吞吐量趋势图
+function initThroughputChart() {
+    if (chartData.throughput.length === 0) return;
+
+    new Chart(document.getElementById('throughputChart'), {
+        type: 'line',
+        data: {
+            labels: chartData.throughput.map(item => item.time_slot),
+            datasets: [{
+                label: '系统吞吐量',
+                data: chartData.throughput.map(item => parseInt(item.total_count)),
+                borderColor: 'rgba(75, 192, 192, 1)',
+                backgroundColor: context => {
+                    const chart = context.chart;
+                    const { ctx, chartArea } = chart;
+                    if (!chartArea) return null;
+                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                    gradient.addColorStop(0, 'rgba(75, 192, 192, 0.1)');
+                    gradient.addColorStop(1, 'rgba(75, 192, 192, 0.4)');
+                    return gradient;
+                },
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            ...chartOptions,
+            scales: {
+                ...chartOptions.scales,
+                x: {
+                    ...chartOptions.scales.x,
+                    ticks: {
+                        ...chartOptions.scales.x.ticks,
+                        callback: (value, index, values) => {
+                            const time = new Date(chartData.throughput[index].time_slot);
+                            return `${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 初始化性能图表组
+function initPerformanceCharts() {
+    // 每日性能柱状图
+    if (chartData.daily.length > 0) {
+        new Chart(document.getElementById('dailyPerformanceChart'), {
+            type: 'bar',
+            data: {
+                labels: chartData.daily.map(item => item.date),
+                datasets: [{
+                    label: '每日完成任务数',
+                    data: chartData.daily.map(item => item.completed_tasks),
+                    backgroundColor: '#2196F3'
+                }]
+            },
+            options: chartOptions
+        });
+    }
+
+    // 每小时性能折线图
+    if (chartData.hourly.length > 0) {
+        new Chart(document.getElementById('hourlyPerformanceChart'), {
+            type: 'line',
+            data: {
+                labels: chartData.hourly.map(item => item.hour),
+                datasets: [{
+                    label: '每小时完成任务数',
+                    data: chartData.hourly.map(item => item.completed_tasks),
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    fill: true
+                }]
+            },
+            options: chartOptions
+        });
+    }
+
+    // 每分钟性能折线图
+    if (chartData.minute.length > 0) {
+        new Chart(document.getElementById('minutePerformanceChart'), {
+            type: 'line',
+            data: {
+                labels: chartData.minute.map(item => item.minute),
+                datasets: [{
+                    label: '每5分钟完成任务数',
+                    data: chartData.minute.map(item => item.completed_tasks),
+                    borderColor: '#FF9800',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    fill: true
+                }]
+            },
+            options: chartOptions
+        });
+    }
+}
+
+// 页面加载初始化
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        initQueueStatusChart();
+        initThroughputChart();
+        initPerformanceCharts();
+    } catch (error) {
+        console.error('图表初始化失败:', error);
+        // 可在此添加错误提示UI
+    }
+});
