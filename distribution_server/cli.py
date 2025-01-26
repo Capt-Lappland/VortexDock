@@ -1,350 +1,304 @@
-# -*- coding: utf-8 -*-
-
 import os
-import json
-import time
-import socket
-import requests
-import subprocess
-import threading
-import shutil
-from datetime import datetime
+import sys
+import zipfile
+import mysql.connector
+import argparse
 from pathlib import Path
 
 import sys
 sys.path.append('..')
-from utils.logger import logger
-from utils.network import SSLContextManager, SecureSocket
+from config import DB_CONFIG
 
-class DockingClient:
-    def __init__(self):
-        # 加载配置文件
-        import config
-        self.debug = config.DEBUG  # 全局调试开关
-        logger.info("Initializing DockingClient")
-        self.server_host = config.SERVER_CONFIG['host']
-        self.http_port = config.SERVER_CONFIG['http_port']
-        self.tcp_port = config.SERVER_CONFIG['tcp_port']
-        self.server_password = config.SERVER_CONFIG['password']
-        self.http_base_url = f'http://{self.server_host}:{self.http_port}'
-        self.max_retries = config.TASK_CONFIG['max_retries']
-        self.retry_delay = config.TASK_CONFIG['retry_delay']
-        self.task_timeout = config.TASK_CONFIG['task_timeout']
-        self.cleanup_interval = config.TASK_CONFIG['cleanup_interval']
-        self.cleanup_age = config.TASK_CONFIG['cleanup_age']
-        self.heartbeat_interval = config.TASK_CONFIG['heartbeat_interval']
-        
-        # 创建必要的目录
-        self.work_dir = Path('work_dir')
-        self.work_dir.mkdir(exist_ok=True)
-        
-        # 初始化SSL上下文和安全套接字
-        self.ssl_context = SSLContextManager().get_client_context()
-        self.sock = None
-        self.secure_sock = None
-        
-        # 连接并验证
-        if not self.connect_tcp():
-            raise ConnectionError("无法连接到服务器")
-        
-        # 启动清理线程
-        self._start_cleanup_thread()
-        logger.info("DockingClient initialized successfully")
-    
-    def connect_tcp(self):
-        """连接到 TCP 命令服务器，支持自动重连"""
-        logger.info("Attempting to connect to TCP server")
-        retries = 0
-        while retries < self.max_retries:
-            try:
-                if self.secure_sock:
-                    try:
-                        self.secure_sock.close()
-                        logger.debug("Closed existing secure socket connection")
-                    except Exception as e:
-                        logger.debug(f"Error closing existing secure socket: {e}")
-                
-                # 创建新的套接字并建立TLS连接
-                raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                raw_sock.connect((self.server_host, self.tcp_port))
-                self.secure_sock = SecureSocket(raw_sock, self.ssl_context)
-                
-                # 发送认证信息
-                auth_data = {
-                    'type': 'auth',
-                    'password': self.server_password
-                }
-                self.secure_sock.send_message(auth_data)
-                
-                # 等待认证结果
-                response = self.secure_sock.receive_message()
-                if not response or response.get('status') != 'ok':
-                    logger.error("Authentication failed")
-                    return False
-                
-                logger.info("Successfully connected and authenticated to TCP server")
-                # 发送初始心跳包
-                self.secure_sock.send_message({'type': 'heartbeat'})
-                response = self.secure_sock.receive_message()
-                if not response or response.get('status') != 'ok':
-                    logger.error("Initial heartbeat failed")
-                    return False
-                return True
-            except Exception as e:
-                retries += 1
-                logger.warning(f"TCP connection attempt {retries} failed: {e}")
-                if retries < self.max_retries:
-                    logger.debug(f"Retrying in {self.retry_delay} seconds")
-                    time.sleep(self.retry_delay)
-        
-        logger.error("Failed to connect to TCP server after maximum retries")
-        return False
-    
-    def get_task(self):
-        """从服务器获取任务，支持自动重连"""
-        try:
-            # 检查连接状态并尝试发送数据
-            self.secure_sock.send_message({'type': 'get_task'})
-            response = self.secure_sock.receive_message()
-            if not response:
-                # 只有在确实断开连接时才重连
-                if self.connect_tcp():
-                    return self.get_task()
-                return {'task_id': None}
-            return response
-        except Exception as e:
-            logger.error(f"Error getting task: {e}")
-            # 只在连接出错时尝试重连
-            if self.connect_tcp():
-                return self.get_task()
-            return {'task_id': None}
-
-    def download_input(self, task_id, filename):
-        """下载输入文件，支持自动重试"""
-        logger.info(f"Downloading input file: {filename} for task {task_id}")
-        retries = 0
-        while retries < self.max_retries:
-            try:
-                task_dir = self.work_dir / str(task_id)
-                task_dir.mkdir(exist_ok=True)
-                logger.debug(f"Created task directory: {task_dir}")
-                
-                if filename == 'receptor.pdbqt':
-                    file_dir = task_dir
-                else:
-                    ligand_dir = task_dir / 'ligands'
-                    ligand_dir.mkdir(exist_ok=True)
-                    file_dir = ligand_dir
-                
-                url = f'{self.http_base_url}/download/{task_id}/{filename}'
-                input_path = file_dir / filename
-                
-                response = requests.get(url, stream=True)
-                response.raise_for_status()
-                
-                with open(input_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                return input_path
-            
-            except (requests.exceptions.RequestException, IOError) as e:
-                retries += 1
-                logger.warning(f"Download attempt {retries} failed: {e}")
-                if retries < self.max_retries:
-                    logger.debug(f"Retrying download in {self.retry_delay} seconds")
-                    time.sleep(self.retry_delay)
-                elif input_path.exists():
-                    logger.debug(f"Cleaning up failed download: {input_path}")
-                    input_path.unlink()
-        
+def get_db_connection():
+    try:
+        return mysql.connector.connect(**DB_CONFIG)
+    except mysql.connector.Error as e:
+        print(f"数据库连接失败: {e}")
         return None
+
+def init_db():
+    conn = get_db_connection()
+    c = conn.cursor()
     
-    def submit_result(self, task_id, ligand_id, output_file):
-        """提交任务结果，支持自动重试"""
-        retries = 0
-        while retries < self.max_retries:
-            try:
-                if not output_file.exists():
-                    logger.error(f"Error: Output file {output_file} does not exist")
-                    return False
-                
-                # 上传结果文件
-                with open(output_file, 'rb') as f:
-                    files = {'file': f}
-                    url = f'{self.http_base_url}/upload/result/{task_id}/{output_file.name}'
-                    response = requests.post(url, files=files)
-                    response.raise_for_status()
-                
-                # 更新任务状态
-                data = {
-                    'type': 'submit_result',
-                    'task_id': task_id,
-                    'ligand_id': ligand_id,
-                    'output_file': output_file.name
-                }
-                try:
-                    self.secure_sock.send_message(data)
-                    response = self.secure_sock.receive_message()
-                    if response and response.get('status') == 'ok':
-                        return True
-                    # 只在连接确实断开时才重连
-                    if not response and self.connect_tcp():
-                        self.secure_sock.send_message(data)
-                        response = self.secure_sock.receive_message()
-                        return response and response.get('status') == 'ok'
-                    return False
-                except Exception as e:
-                    logger.error(f"TCP communication error: {e}")
-                    # 只在连接出错时尝试重连
-                    if self.connect_tcp():
-                        self.secure_sock.send_message(data)
-                        response = self.secure_sock.receive_message()
-                        return response and response.get('status') == 'ok'
-                    return False
-            
-            except requests.exceptions.RequestException as e:
-                retries += 1
-                logger.error(f"HTTP upload attempt {retries} failed: {e}")
-                if retries < self.max_retries:
-                    time.sleep(self.retry_delay)
-        
-        return False
+    # 创建主任务表
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            id VARCHAR(255) PRIMARY KEY,
+            status VARCHAR(50),
+            center_x FLOAT,
+            center_y FLOAT,
+            center_z FLOAT,
+            size_x FLOAT,
+            size_y FLOAT,
+            size_z FLOAT,
+            num_modes INT,
+            energy_range FLOAT,
+            cpu INT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
-    def run_vina(self, task_id, ligand_id, receptor_file, ligand_file, params):
-        """执行 vina 分子对接命令"""
-        logger.info(f"Starting Vina docking for task {task_id}, ligand {ligand_id}")
-        task_dir = self.work_dir / str(task_id)
-        output_file = f"{ligand_id}_out.pdbqt"
-        output_path = task_dir / output_file
-        logger.debug(f"Output will be saved to: {output_path}")
-        
-        vina_path = os.path.join(os.path.dirname(__file__), 'vina')
-        cmd = [
-            vina_path,
-            '--receptor', str(receptor_file),
-            '--ligand', str(ligand_file),
-            '--center_x', str(params['center_x']),
-            '--center_y', str(params['center_y']),
-            '--center_z', str(params['center_z']),
-            '--size_x', str(params['size_x']),
-            '--size_y', str(params['size_y']),
-            '--size_z', str(params['size_z']),
-            '--num_modes', str(params['num_modes']),
-            '--energy_range', str(params['energy_range']),
-            '--cpu', str(params['cpu']),
-            '--out', str(output_path)
-        ]
-        
-        try:
-            # 使用Popen来实时获取输出
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-            
-            # 实时处理输出
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    # 解析输出中的进度信息
-                    if 'Writing output' in output:
-                        logger.info(f"Task {task_id} ligand {ligand_id}: Docking completed, writing results")
-                    elif 'Reading input' in output:
-                        logger.info(f"Task {task_id} ligand {ligand_id}: Reading input files")
-                    elif 'Performing search' in output:
-                        logger.info(f"Task {task_id} ligand {ligand_id}: Performing docking search")
-                    else:
-                        logger.debug(output.strip())
-            
-            # 检查进程返回值
-            if process.returncode == 0:
-                return output_path if output_path.exists() else None
-            else:
-                logger.error(f"Vina process failed with return code {process.returncode}")
-                return None
-                
-        except subprocess.TimeoutExpired:
-            logger.error(f"Task {task_id} ligand {ligand_id} timed out after {self.task_timeout} seconds")
-            return None
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Vina execution failed: {e}")
-            return None
+    conn.commit()
+    conn.close()
+
+def list_tasks():
+    conn = get_db_connection()
+    c = conn.cursor()
     
-    def run(self):
-        """运行计算节点主循环"""
-        logger.info("Starting compute node...")
+    c.execute('SELECT id, status, created_at FROM tasks')
+    tasks = c.fetchall()
+    
+    if not tasks:
+        print("没有找到任务")
+    else:
+        print("任务列表:")
+        print("ID\t状态\t进度\t\t创建时间")
+        for task in tasks:
+            task_id = task[0]
+            # 获取该任务的配体总数和已完成数
+            c.execute(f'SELECT COUNT(*) FROM task_{task_id}_ligands')
+            total = c.fetchone()[0]
+            c.execute(f'SELECT COUNT(*) FROM task_{task_id}_ligands WHERE status = "completed"')
+            completed = c.fetchone()[0]
+            
+            # 计算进度百分比
+            progress = completed / total if total > 0 else 0
+            progress_bar = create_progress_bar(progress)
+            
+            print(f"{task_id}\t{task[1]}\t{progress_bar}\t{task[2]}")
+    
+    conn.close()
+
+def create_progress_bar(progress, width=20):
+    filled = int(width * progress)
+    empty = width - filled
+    bar = '=' * filled + '>' + ' ' * empty if filled < width else '=' * width
+    percentage = int(progress * 100)
+    return f'[{bar}] {percentage}%'
+    
+    conn.close()
+
+def create_task(zip_path, name):
+    if not os.path.exists(zip_path):
+        print(f"错误：找不到文件 {zip_path}")
+        return
+    
+    # 创建临时目录解压文件
+    temp_dir = Path('temp_extract')
+    temp_dir.mkdir(exist_ok=True)
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
         
-        # 确保初始连接建立
-        if not self.secure_sock or not self.connect_tcp():
-            logger.error("Failed to establish initial connection to server")
+        # 验证必要文件
+        receptor_file = next(temp_dir.glob('**/receptor.pdbqt'), None)
+        parameter_file = next(temp_dir.glob('**/parameter.txt'), None)
+        ligand_files = list(temp_dir.glob('**/ligands/*.pdbqt'))
+        
+        if not (receptor_file and parameter_file and ligand_files):
+            print("错误：ZIP文件缺少必要的文件（receptor.pdbqt、parameter.txt、ligands/ligand_*.pdbqt）")
             return
         
-        while True:
-            try:
-                # 获取任务
-                task = self.get_task()
-                if task.get('task_id') is None:
-                    time.sleep(5)
-                    continue
-                
-                logger.info(f"Received task {task['task_id']}")
-                
-                # 下载所需文件
-                receptor_file = self.download_input(task['task_id'], 'receptor.pdbqt')
-                ligand_file = self.download_input(task['task_id'], task['ligand_file'])
-                
-                if not all([receptor_file, ligand_file]):
-                    logger.error("Failed to download required files")
-                    continue
-                
-                # 执行分子对接
-                output_path = self.run_vina(task['task_id'], task['ligand_id'],
-                                          receptor_file, ligand_file, task['params'])
-                if not output_path:
-                    logger.error("Docking failed")
-                    continue
-                
-                # 提交结果
-                if self.submit_result(task['task_id'], task['ligand_id'], output_path):
-                    logger.info(f"Task {task['task_id']} ligand {task['ligand_id']} completed successfully")
-                else:
-                    logger.info(f"Failed to submit results for task {task['task_id']} ligand {task['ligand_id']}")
-            
-            except Exception as e:
-                logger.error(f"Unexpected error: {e}")
-                # 如果发生错误，尝试重新建立连接
-                if not self.connect_tcp():
-                    logger.error("Failed to reconnect to server, exiting...")
-                    return
-                time.sleep(self.retry_delay)
-
-    def _start_cleanup_thread(self):
-        """启动清理线程，定期清理过期的工作目录文件"""
-        def cleanup_worker():
-            while True:
-                try:
-                    # 获取当前时间
-                    now = datetime.now()
-                    # 遍历工作目录
-                    for task_dir in self.work_dir.iterdir():
-                        if task_dir.is_dir():
-                            # 获取目录的最后修改时间
-                            mtime = datetime.fromtimestamp(task_dir.stat().st_mtime)
-                            # 如果目录超过清理时间阈值，则删除
-                            if (now - mtime).total_seconds() > self.cleanup_age:
-                                logger.info(f"Cleaning up expired task directory: {task_dir}")
-                                shutil.rmtree(task_dir)
-                except Exception as e:
-                    logger.error(f"Error in cleanup thread: {e}")
-                # 等待下一次清理
-                time.sleep(self.cleanup_interval)
+        # 将文件移动到任务目录
+        task_dir = Path('tasks') / name
+        task_dir.mkdir(parents=True, exist_ok=True)
         
-        # 创建并启动清理线程
-        cleanup_thread = threading.Thread(target=cleanup_worker)
-        cleanup_thread.daemon = True  # 设置为守护线程
-        cleanup_thread.start()
-        logger.info("Cleanup thread started")
+        # 创建 ligands 子目录
+        ligands_dir = task_dir / 'ligands'
+        ligands_dir.mkdir(exist_ok=True)
+        
+        receptor_dest = task_dir / 'receptor.pdbqt'
+        parameter_dest = task_dir / 'parameter.txt'
+        
+        receptor_file.rename(receptor_dest)
+        parameter_file.rename(parameter_dest)
+        
+        # 创建数据库记录
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        # 解析参数文件
+        params = {}
+        with open(parameter_dest, 'r') as f:
+            for line in f:
+                if '=' in line:
+                    key, value = line.strip().split('=')
+                    params[key.strip()] = value.strip()
+        
+        # 插入主任务记录
+        c.execute('''
+            INSERT INTO tasks (
+                id, status,
+                center_x, center_y, center_z,
+                size_x, size_y, size_z,
+                num_modes, energy_range, cpu
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (
+            name, 'pending',
+            float(params.get('center_x', 0)), float(params.get('center_y', 0)), float(params.get('center_z', 0)),
+            float(params.get('size_x', 0)), float(params.get('size_y', 0)), float(params.get('size_z', 0)),
+            int(params.get('num_modes', 9)), float(params.get('energy_range', 3)), int(params.get('cpu', 1))
+        ))
+        
+        # 创建任务特定的配体表
+        c.execute(f'''
+            CREATE TABLE IF NOT EXISTS task_{name}_ligands (
+                ligand_id VARCHAR(255) PRIMARY KEY,
+                ligand_file VARCHAR(255),
+                status VARCHAR(50) DEFAULT 'pending',
+                output_file VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 添加配体记录
+        for ligand_file in ligand_files:
+            # 直接使用文件名（不含扩展名）作为 ligand_id
+            ligand_id = ligand_file.stem
+            ligand_dest = ligands_dir / ligand_file.name
+            ligand_file.rename(ligand_dest)
+            
+            c.execute(f'''
+                INSERT INTO task_{name}_ligands (ligand_id, ligand_file)
+                VALUES (%s, %s)
+            ''', (ligand_id, ligand_file.name))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"成功创建任务 {name}")
+        
+    except Exception as e:
+        print(f"错误：{str(e)}")
+    finally:
+        # 清理临时目录
+        if temp_dir.exists():
+            import shutil
+            shutil.rmtree(temp_dir)
+
+def remove_task(task_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # 检查任务是否存在
+        c.execute('SELECT id FROM tasks WHERE id = %s', (task_id,))
+        if not c.fetchone():
+            print(f"错误：找不到任务 {task_id}")
+            return
+        
+        # 删除任务记录
+        c.execute('DELETE FROM tasks WHERE id = %s', (task_id,))
+        
+        # 删除任务的配体表
+        c.execute(f'DROP TABLE IF EXISTS task_{task_id}_ligands')
+        
+        conn.commit()
+        
+        # 删除任务相关文件
+        task_dir = Path('tasks') / task_id
+        result_dir = Path('results') / task_id
+        
+        import shutil
+        if task_dir.exists():
+            shutil.rmtree(task_dir)
+        if result_dir.exists():
+            shutil.rmtree(result_dir)
+            
+        print(f"成功删除任务 {task_id}")
+        
+    except Exception as e:
+        print(f"删除任务时出错：{str(e)}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def pause_task(task_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # 检查任务是否存在
+        c.execute('SELECT status FROM tasks WHERE id = %s', (task_id,))
+        task = c.fetchone()
+        if not task:
+            print(f"错误：找不到任务 {task_id}")
+            return
+        
+        current_status = task[0]
+        new_status = 'paused' if current_status == 'pending' else 'pending'
+        
+        # 更新任务状态
+        c.execute('UPDATE tasks SET status = %s WHERE id = %s', (new_status, task_id))
+        conn.commit()
+        
+        action = '暂停' if new_status == 'paused' else '恢复'
+        print(f"成功{action}任务 {task_id}")
+        
+    except Exception as e:
+        print(f"更新任务状态时出错：{str(e)}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def set_server_password(password):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # 生成密码哈希
+        import bcrypt
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+        
+        # 清除旧的认证信息
+        c.execute('DELETE FROM server_auth')
+        
+        # 插入新的认证信息
+        c.execute('''
+            INSERT INTO server_auth (password_hash)
+            VALUES (%s)
+        ''', (password_hash.decode('utf-8'),))
+        
+        conn.commit()
+        print("服务器密码设置成功")
+        
+    except Exception as e:
+        print(f"设置密码时出错：{str(e)}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def main():
+    parser = argparse.ArgumentParser(description='分子对接任务管理工具')
+    parser.add_argument('-ls', action='store_true', help='列出所有任务')
+    parser.add_argument('-zip', help='要提交的任务ZIP文件路径')
+    parser.add_argument('-name', help='任务名称')
+    parser.add_argument('-rm', help='删除指定的任务')
+    parser.add_argument('-pause', help='暂停/恢复指定的任务')
+    parser.add_argument('-set-password', help='设置服务器密码')
+    
+    args = parser.parse_args()
+    
+    # 确保数据库和必要目录存在
+    init_db()
+    os.makedirs('tasks', exist_ok=True)
+    
+    if args.ls:
+        list_tasks()
+    elif args.zip and args.name:
+        create_task(args.zip, args.name)
+    elif args.rm:
+        remove_task(args.rm)
+    elif args.pause:
+        pause_task(args.pause)
+    elif args.set_password:
+        set_server_password(args.set_password)
+    else:
+        parser.print_help()
 
 if __name__ == '__main__':
-    client = DockingClient()
-    client.run()
+    main()

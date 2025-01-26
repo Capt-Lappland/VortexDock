@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import json
 import time
@@ -12,6 +14,7 @@ from pathlib import Path
 import sys
 sys.path.append('..')
 from utils.logger import logger
+from utils.network import SSLContextManager, SecureSocket
 
 class DockingClient:
     def __init__(self):
@@ -22,6 +25,7 @@ class DockingClient:
         self.server_host = config.SERVER_CONFIG['host']
         self.http_port = config.SERVER_CONFIG['http_port']
         self.tcp_port = config.SERVER_CONFIG['tcp_port']
+        self.server_password = config.SERVER_CONFIG['password']
         self.http_base_url = f'http://{self.server_host}:{self.http_port}'
         self.max_retries = config.TASK_CONFIG['max_retries']
         self.retry_delay = config.TASK_CONFIG['retry_delay']
@@ -33,60 +37,58 @@ class DockingClient:
         # 创建必要的目录
         self.work_dir = Path('work_dir')
         self.work_dir.mkdir(exist_ok=True)
-        self.sock = socket.socket()
-        self.sock.connect((self.server_host, self.tcp_port))
+        
+        # 初始化SSL上下文和安全套接字
+        self.ssl_context = SSLContextManager().get_client_context()
+        self.sock = None
+        self.secure_sock = None
+        
+        # 连接并验证
+        if not self.connect_tcp():
+            raise ConnectionError("无法连接到服务器")
+        
         # 启动清理线程
         self._start_cleanup_thread()
         logger.info("DockingClient initialized successfully")
     
-    def _start_cleanup_thread(self):
-        """启动工作目录清理线程"""
-        def cleanup_worker():
-            while True:
-                try:
-                    self._cleanup_work_dir()
-                except Exception as e:
-                    logger.error(f"Error during cleanup: {e}")
-                time.sleep(self.cleanup_interval)
-        
-        thread = threading.Thread(target=cleanup_worker, daemon=True)
-        thread.start()
-    
-    def _cleanup_work_dir(self):
-        """清理过期的工作目录"""
-        now = datetime.now()
-        for task_dir in self.work_dir.iterdir():
-            if not task_dir.is_dir():
-                continue
-            
-            try:
-                # 检查目录的最后修改时间
-                mtime = datetime.fromtimestamp(task_dir.stat().st_mtime)
-                age = (now - mtime).total_seconds()
-                
-                if age > self.cleanup_age:
-                    shutil.rmtree(task_dir)
-                    logger.info(f"Cleaned up task directory: {task_dir}")
-            except Exception as e:
-                logger.error(f"Error cleaning up {task_dir}: {e}")
-    
-
-
     def connect_tcp(self):
         """连接到 TCP 命令服务器，支持自动重连"""
         logger.info("Attempting to connect to TCP server")
         retries = 0
         while retries < self.max_retries:
             try:
-                if self.sock:
+                if self.secure_sock:
                     try:
-                        self.sock.close()
-                        logger.debug("Closed existing socket connection")
+                        self.secure_sock.close()
+                        logger.debug("Closed existing secure socket connection")
                     except Exception as e:
-                        logger.debug(f"Error closing existing socket: {e}")
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.connect((self.server_host, self.tcp_port))
-                logger.info("Successfully connected to TCP server")
+                        logger.debug(f"Error closing existing secure socket: {e}")
+                
+                # 创建新的套接字并建立TLS连接
+                raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                raw_sock.connect((self.server_host, self.tcp_port))
+                self.secure_sock = SecureSocket(raw_sock, self.ssl_context)
+                
+                # 发送认证信息
+                auth_data = {
+                    'type': 'auth',
+                    'password': self.server_password
+                }
+                self.secure_sock.send_message(auth_data)
+                
+                # 等待认证结果
+                response = self.secure_sock.receive_message()
+                if not response or response.get('status') != 'ok':
+                    logger.error("Authentication failed")
+                    return False
+                
+                logger.info("Successfully connected and authenticated to TCP server")
+                # 发送初始心跳包
+                self.secure_sock.send_message({'type': 'heartbeat'})
+                response = self.secure_sock.receive_message()
+                if not response or response.get('status') != 'ok':
+                    logger.error("Initial heartbeat failed")
+                    return False
                 return True
             except Exception as e:
                 retries += 1
@@ -101,18 +103,22 @@ class DockingClient:
     def get_task(self):
         """从服务器获取任务，支持自动重连"""
         try:
-            self.sock.send(json.dumps({'type': 'get_task'}).encode())
-            data = self.sock.recv(1024)
-            if not data:
-                raise ConnectionError("服务器连接已断开")
-            response = json.loads(data.decode())
+            # 检查连接状态并尝试发送数据
+            self.secure_sock.send_message({'type': 'get_task'})
+            response = self.secure_sock.receive_message()
+            if not response:
+                # 只有在确实断开连接时才重连
+                if self.connect_tcp():
+                    return self.get_task()
+                return {'task_id': None}
             return response
-        except (ConnectionError, json.JSONDecodeError, socket.error) as e:
+        except Exception as e:
             logger.error(f"Error getting task: {e}")
+            # 只在连接出错时尝试重连
             if self.connect_tcp():
                 return self.get_task()
             return {'task_id': None}
-    
+
     def download_input(self, task_id, filename):
         """下载输入文件，支持自动重试"""
         logger.info(f"Downloading input file: {filename} for task {task_id}")
@@ -178,16 +184,23 @@ class DockingClient:
                     'output_file': output_file.name
                 }
                 try:
-                    self.sock.send(json.dumps(data).encode())
-                    response = json.loads(self.sock.recv(1024).decode())
-                    return response['status'] == 'ok'
-                except (socket.error, json.JSONDecodeError) as e:
+                    self.secure_sock.send_message(data)
+                    response = self.secure_sock.receive_message()
+                    if response and response.get('status') == 'ok':
+                        return True
+                    # 只在连接确实断开时才重连
+                    if not response and self.connect_tcp():
+                        self.secure_sock.send_message(data)
+                        response = self.secure_sock.receive_message()
+                        return response and response.get('status') == 'ok'
+                    return False
+                except Exception as e:
                     logger.error(f"TCP communication error: {e}")
+                    # 只在连接出错时尝试重连
                     if self.connect_tcp():
-                        # 重新发送任务状态
-                        self.sock.send(json.dumps(data).encode())
-                        response = json.loads(self.sock.recv(1024).decode())
-                        return response['status'] == 'ok'
+                        self.secure_sock.send_message(data)
+                        response = self.secure_sock.receive_message()
+                        return response and response.get('status') == 'ok'
                     return False
             
             except requests.exceptions.RequestException as e:
@@ -261,13 +274,13 @@ class DockingClient:
         """运行计算节点主循环"""
         logger.info("Starting compute node...")
         
+        # 确保初始连接建立
+        if not self.secure_sock or not self.connect_tcp():
+            logger.error("Failed to establish initial connection to server")
+            return
+        
         while True:
             try:
-                if not self.sock or not self.connect_tcp():
-                    logger.warning("Failed to connect to server, retrying...")
-                    time.sleep(self.retry_delay)
-                    continue
-                
                 # 获取任务
                 task = self.get_task()
                 if task.get('task_id') is None:
@@ -299,7 +312,38 @@ class DockingClient:
             
             except Exception as e:
                 logger.error(f"Unexpected error: {e}")
+                # 如果发生错误，尝试重新建立连接
+                if not self.connect_tcp():
+                    logger.error("Failed to reconnect to server, exiting...")
+                    return
                 time.sleep(self.retry_delay)
+
+    def _start_cleanup_thread(self):
+        """启动清理线程，定期清理过期的工作目录文件"""
+        def cleanup_worker():
+            while True:
+                try:
+                    # 获取当前时间
+                    now = datetime.now()
+                    # 遍历工作目录
+                    for task_dir in self.work_dir.iterdir():
+                        if task_dir.is_dir():
+                            # 获取目录的最后修改时间
+                            mtime = datetime.fromtimestamp(task_dir.stat().st_mtime)
+                            # 如果目录超过清理时间阈值，则删除
+                            if (now - mtime).total_seconds() > self.cleanup_age:
+                                logger.info(f"Cleaning up expired task directory: {task_dir}")
+                                shutil.rmtree(task_dir)
+                except Exception as e:
+                    logger.error(f"Error in cleanup thread: {e}")
+                # 等待下一次清理
+                time.sleep(self.cleanup_interval)
+        
+        # 创建并启动清理线程
+        cleanup_thread = threading.Thread(target=cleanup_worker)
+        cleanup_thread.daemon = True  # 设置为守护线程
+        cleanup_thread.start()
+        logger.info("Cleanup thread started")
 
 if __name__ == '__main__':
     client = DockingClient()
