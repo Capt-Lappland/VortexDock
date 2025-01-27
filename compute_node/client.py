@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import sys
+sys.path.append('..')
+
 import os
 import json
 import time
@@ -10,9 +13,6 @@ import threading
 import shutil
 from datetime import datetime
 from pathlib import Path
-
-import sys
-sys.path.append('..')
 from utils.logger import logger
 from utils.network import SSLContextManager, SecureSocket
 
@@ -33,8 +33,7 @@ class DockingClient:
         self.task_timeout = config.TASK_CONFIG['task_timeout']
         self.cleanup_interval = config.TASK_CONFIG['cleanup_interval']
         self.cleanup_age = config.TASK_CONFIG['cleanup_age']
-        self.heartbeat_interval = config.TASK_CONFIG['heartbeat_interval']
-        self.psutil = psutil  # 用于获取系统性能数据
+        self.psutil = psutil
         
         # 创建必要的目录
         self.work_dir = Path('work_dir')
@@ -95,19 +94,6 @@ class DockingClient:
                     return False
                 
                 logger.info("Successfully connected and authenticated to TCP server")
-                # 发送初始心跳包
-                cpu_usage = self.psutil.cpu_percent(interval=1)
-                self.secure_sock.send_message({
-                    'type': 'heartbeat',
-                    'cpu_usage': cpu_usage
-                })
-                response = self.secure_sock.receive_message()
-                if not response or response.get('status') != 'ok':
-                    logger.error("Initial heartbeat failed")
-                    return False
-                
-                # 启动心跳线程
-                self._start_heartbeat_thread()
                 return True
             except Exception as e:
                 retries += 1
@@ -396,57 +382,7 @@ class DockingClient:
                     return
                 time.sleep(self.retry_delay)
 
-    def _start_heartbeat_thread(self):
-        """启动心跳线程，定期发送心跳包和性能数据"""
-        def heartbeat_worker():
-            consecutive_failures = 0
-            max_failures = 3
-            while True:
-                try:
-                    # 检查连接状态
-                    if not self.secure_sock:
-                        logger.warning("No active connection, attempting to reconnect...")
-                        if not self.connect_tcp():
-                            consecutive_failures += 1
-                            if consecutive_failures >= max_failures:
-                                logger.error("Maximum reconnection attempts reached")
-                                time.sleep(self.retry_delay * 2)
-                                consecutive_failures = 0
-                            continue
-                    
-                    # 获取CPU使用率
-                    cpu_usage = self.psutil.cpu_percent(interval=1)
-                    # 发送心跳包
-                    with self.sock_lock:
-                        try:
-                            self.secure_sock.send_message({
-                                'type': 'heartbeat',
-                                'cpu_usage': cpu_usage
-                            })
-                            response = self.secure_sock.receive_message()
-                            if not response or response.get('status') != 'ok':
-                                raise ConnectionError("Invalid heartbeat response")
-                            consecutive_failures = 0  # 重置失败计数
-                        except Exception as e:
-                            logger.warning(f"Heartbeat failed: {e}, attempting to reconnect...")
-                            self.secure_sock = None  # 标记连接为无效
-                            consecutive_failures += 1
-                            if consecutive_failures >= max_failures:
-                                logger.error("Maximum reconnection attempts reached")
-                                time.sleep(self.retry_delay * 2)
-                                consecutive_failures = 0
-                except Exception as e:
-                    logger.error(f"Error in heartbeat thread: {e}")
-                    time.sleep(self.retry_delay)
-                finally:
-                    time.sleep(self.heartbeat_interval)
-        
-        # 创建并启动心跳线程
-        heartbeat_thread = threading.Thread(target=heartbeat_worker)
-        heartbeat_thread.daemon = True
-        heartbeat_thread.start()
-        logger.info("Heartbeat thread started")
-    
+
     def _start_cleanup_thread(self):
         """启动清理线程，定期清理过期的工作目录文件"""
         def cleanup_worker():
