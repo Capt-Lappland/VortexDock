@@ -173,6 +173,57 @@ $conn->close();
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="js/charts.js"></script>
+    <script>
+    $(document).ready(function() {
+        function updateDashboard() {
+            $.ajax({
+                url: 'includes/get_monitor_data.php',
+                method: 'GET',
+                success: function(data) {
+                    // 更新统计卡片
+                    $('.stats-value').eq(0).text(data.nodeStats.online + '/' + data.nodeStats.total);
+                    $('.stats-value').eq(1).text(data.nodeStats.avg_cpu_usage + '%');
+                    $('.stats-value').eq(2).text(data.performanceStats.avg_processing_time + '分钟');
+                    $('.stats-value').eq(3).text(data.performanceStats.success_rate + '%');
+
+                    // 更新任务进度
+                    let taskHtml = '';
+                    data.tasksProgress.forEach(task => {
+                        taskHtml += `
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold">任务 ${task.id}</span>
+                                    <div class="text-end">
+                                        <span class="text-muted">${task.completed}/${task.total}</span>
+                                        ${task.estimated_time ? `<span class="ms-2 text-info">预计${task.estimated_time}后完成</span>` : ''}
+                                    </div>
+                                </div>
+                                <div class="progress">
+                                    <div class="progress-bar" role="progressbar" 
+                                         style="width: ${task.progress}%"
+                                         aria-valuenow="${task.progress}" 
+                                         aria-valuemin="0" aria-valuemax="100">
+                                        ${task.progress}%
+                                    </div>
+                                </div>
+                            </div>`;
+                    });
+                    $('.card-body').first().html(taskHtml);
+
+                    // 更新图表数据
+                    updateCharts(data);
+                },
+                error: function(xhr, status, error) {
+                    console.error('获取数据失败:', error);
+                }
+            });
+        }
+
+        // 每10秒更新一次数据
+        setInterval(updateDashboard, 10000);
+    });
+    </script>
 </body>
 </html>

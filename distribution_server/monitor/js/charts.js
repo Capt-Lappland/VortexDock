@@ -10,6 +10,16 @@ if (!chartDataElement) {
     throw new Error('chart-data元素不存在');
 }
 
+// 存储图表实例
+let charts = {
+    queueStatus: null,
+    throughput: null,
+    daily: null,
+    hourly: null,
+    minute: null,
+    cpuTrend: null
+};
+
 let chartData;
 try {
     chartData = {
@@ -81,7 +91,7 @@ const chartOptions = {
 
 // 初始化队列状态饼图
 function initQueueStatusChart() {
-    new Chart(document.getElementById('queueStatusChart'), {
+    return new Chart(document.getElementById('queueStatusChart'), {
         type: 'pie',
         data: {
             labels: ['待处理', '处理中', '已完成', '失败'],
@@ -107,9 +117,9 @@ function initQueueStatusChart() {
 
 // 初始化吞吐量趋势图
 function initThroughputChart() {
-    if (chartData.throughput.length === 0) return;
+    if (chartData.throughput.length === 0) return null;
 
-    new Chart(document.getElementById('throughputChart'), {
+    return new Chart(document.getElementById('throughputChart'), {
         type: 'line',
         data: {
             labels: chartData.throughput.map(item => item.time_slot),
@@ -151,9 +161,15 @@ function initThroughputChart() {
 
 // 初始化性能图表组
 function initPerformanceCharts() {
+    const charts = {
+        daily: null,
+        hourly: null,
+        minute: null
+    };
+
     // 每日性能柱状图
     if (chartData.daily.length > 0) {
-        new Chart(document.getElementById('dailyPerformanceChart'), {
+        charts.daily = new Chart(document.getElementById('dailyPerformanceChart'), {
             type: 'bar',
             data: {
                 labels: chartData.daily.map(item => item.date),
@@ -169,7 +185,7 @@ function initPerformanceCharts() {
 
     // 每小时性能折线图
     if (chartData.hourly.length > 0) {
-        new Chart(document.getElementById('hourlyPerformanceChart'), {
+        charts.hourly = new Chart(document.getElementById('hourlyPerformanceChart'), {
             type: 'line',
             data: {
                 labels: chartData.hourly.map(item => item.hour),
@@ -187,7 +203,7 @@ function initPerformanceCharts() {
 
     // 每分钟性能折线图
     if (chartData.minute.length > 0) {
-        new Chart(document.getElementById('minutePerformanceChart'), {
+        charts.minute = new Chart(document.getElementById('minutePerformanceChart'), {
             type: 'line',
             data: {
                 labels: chartData.minute.map(item => item.minute),
@@ -202,36 +218,38 @@ function initPerformanceCharts() {
             options: chartOptions
         });
     }
+
+    return charts;
+}
+
+// 预定义的高对比度颜色组合
+const predefinedColors = [
+    '#FF6B6B',  // 鲜红色
+    '#4ECDC4',  // 青绿色
+    '#45B7D1',  // 天蓝色
+    '#96CEB4',  // 薄荷绿
+    '#FFD93D',  // 明黄色
+    '#6C5CE7',  // 靛蓝色
+    '#A8E6CF',  // 浅绿色
+    '#FF8B94',  // 粉红色
+    '#A3A1FF',  // 淡紫色
+    '#FFDAC1'   // 杏色
+];
+
+// 生成颜色
+function generateColor(index) {
+    return predefinedColors[index % predefinedColors.length];
 }
 
 // 绘制节点CPU使用率趋势图
 function initNodeCpuTrendChart() {
     const chartElement = document.getElementById('nodeCpuTrendChart');
-    if (!chartElement) return;
+    if (!chartElement) return null;
 
     const cpuTrendData = chartData.cpuTrend;
     if (!cpuTrendData || cpuTrendData.length === 0) {
         console.warn('CPU趋势数据为空');
-        return;
-    }
-
-    // 预定义的高对比度颜色组合
-    const predefinedColors = [
-        '#FF6B6B',  // 鲜红色
-        '#4ECDC4',  // 青绿色
-        '#45B7D1',  // 天蓝色
-        '#96CEB4',  // 薄荷绿
-        '#FFD93D',  // 明黄色
-        '#6C5CE7',  // 靛蓝色
-        '#A8E6CF',  // 浅绿色
-        '#FF8B94',  // 粉红色
-        '#A3A1FF',  // 淡紫色
-        '#FFDAC1'   // 杏色
-    ];
-
-    // 生成颜色
-    function generateColor(index) {
-        return predefinedColors[index % predefinedColors.length];
+        return null;
     }
 
     // 准备数据集
@@ -247,7 +265,7 @@ function initNodeCpuTrendChart() {
         borderWidth: 2
     }));
 
-    new Chart(chartElement, {
+    return new Chart(chartElement, {
         type: 'line',
         data: {
             datasets: datasets
@@ -316,11 +334,87 @@ function initNodeCpuTrendChart() {
 // 页面加载初始化
 document.addEventListener('DOMContentLoaded', () => {
     try {
-        initQueueStatusChart();
-        initThroughputChart();
-        initPerformanceCharts();
-        initNodeCpuTrendChart();
+        charts.queueStatus = initQueueStatusChart();
+        charts.throughput = initThroughputChart();
+        const performanceCharts = initPerformanceCharts();
+        charts.daily = performanceCharts.daily;
+        charts.hourly = performanceCharts.hourly;
+        charts.minute = performanceCharts.minute;
+        charts.cpuTrend = initNodeCpuTrendChart();
     } catch (error) {
         console.error('图表初始化失败:', error);
     }
 });
+
+// 更新图表数据
+function updateCharts(data) {
+    try {
+        // 更新图表数据
+        chartData = {
+            queueStatus: data.queueStats || {},
+            throughput: data.performanceStats.throughput || [],
+            daily: data.nodePerformance.daily || [],
+            hourly: data.nodePerformance.hourly || [],
+            minute: data.nodePerformance.minute || [],
+            cpuTrend: data.nodeCpuTrend || []
+        };
+
+        // 更新队列状态图表
+        if (charts.queueStatus) {
+            charts.queueStatus.data.datasets[0].data = [
+                chartData.queueStatus.pending,
+                chartData.queueStatus.processing,
+                chartData.queueStatus.completed,
+                chartData.queueStatus.failed
+            ];
+            charts.queueStatus.update('none');
+        }
+
+        // 更新吞吐量趋势图表
+        if (charts.throughput && chartData.throughput.length > 0) {
+            charts.throughput.data.labels = chartData.throughput.map(item => item.time_slot);
+            charts.throughput.data.datasets[0].data = chartData.throughput.map(item => parseInt(item.total_count));
+            charts.throughput.update('none');
+        }
+
+        // 更新每日性能图表
+        if (charts.daily && chartData.daily.length > 0) {
+            charts.daily.data.labels = chartData.daily.map(item => item.date);
+            charts.daily.data.datasets[0].data = chartData.daily.map(item => item.completed_tasks);
+            charts.daily.update('none');
+        }
+
+        // 更新每小时性能图表
+        if (charts.hourly && chartData.hourly.length > 0) {
+            charts.hourly.data.labels = chartData.hourly.map(item => item.hour);
+            charts.hourly.data.datasets[0].data = chartData.hourly.map(item => item.completed_tasks);
+            charts.hourly.update('none');
+        }
+
+        // 更新每分钟性能图表
+        if (charts.minute && chartData.minute.length > 0) {
+            charts.minute.data.labels = chartData.minute.map(item => item.minute);
+            charts.minute.data.datasets[0].data = chartData.minute.map(item => item.completed_tasks);
+            charts.minute.update('none');
+        }
+
+        // 更新CPU趋势图表
+        if (charts.cpuTrend && chartData.cpuTrend.length > 0) {
+            const datasets = chartData.cpuTrend.map((node, index) => ({
+                label: `节点 ${node.node}`,
+                data: Object.entries(node.data).map(([time, value]) => ({
+                    x: new Date(time).getTime(),
+                    y: parseFloat(value)
+                })),
+                borderColor: generateColor(index),
+                backgroundColor: 'transparent',
+                tension: 0.4,
+                borderWidth: 2
+            }));
+            charts.cpuTrend.data.datasets = datasets;
+            charts.cpuTrend.update('none');
+        }
+    } catch (error) {
+        console.error('更新图表数据失败:', error);
+    }
+}
