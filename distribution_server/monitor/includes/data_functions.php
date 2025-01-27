@@ -239,4 +239,37 @@ function formatEstimatedTime($minutes) {
     $minutes = $minutes % 60;
     return ($hours > 0 ? $hours.'小时' : '').($minutes > 0 ? $minutes.'分钟' : '');
 }
+
+/**
+ * 获取节点CPU使用率趋势
+ */
+function getNodeCpuTrend($conn) {
+    $data = [];
+    
+    // 获取最近一小时内的所有节点CPU使用率数据
+    $result = $conn->query("SELECT 
+                            client_addr,
+                            DATE_FORMAT(last_heartbeat, '%Y-%m-%d %H:%i') as minute,
+                            cpu_usage
+                          FROM node_heartbeats
+                          WHERE last_heartbeat >= NOW() - INTERVAL 1 HOUR
+                          ORDER BY last_heartbeat ASC");
+    
+    if ($result && $result->num_rows > 0) {
+        $nodeData = [];
+        while ($row = $result->fetch_assoc()) {
+            $nodeData[$row['client_addr']][$row['minute']] = $row['cpu_usage'];
+        }
+        
+        // 为每个节点整理数据
+        foreach ($nodeData as $node => $points) {
+            $data[] = [
+                'node' => $node,
+                'data' => $points
+            ];
+        }
+    }
+    
+    return $data;
+}
 ?>

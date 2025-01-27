@@ -17,7 +17,8 @@ try {
         throughput: JSON.parse(chartDataElement.dataset.throughput || '[]'),
         daily: JSON.parse(chartDataElement.dataset.daily || '[]'),
         hourly: JSON.parse(chartDataElement.dataset.hourly || '[]'),
-        minute: JSON.parse(chartDataElement.dataset.minute || '[]')
+        minute: JSON.parse(chartDataElement.dataset.minute || '[]'),
+        cpuTrend: JSON.parse(chartDataElement.dataset.cpuTrend || '[]')
     };
 } catch (error) {
     console.error('解析图表数据失败:', error);
@@ -203,14 +204,123 @@ function initPerformanceCharts() {
     }
 }
 
+// 绘制节点CPU使用率趋势图
+function initNodeCpuTrendChart() {
+    const chartElement = document.getElementById('nodeCpuTrendChart');
+    if (!chartElement) return;
+
+    const cpuTrendData = chartData.cpuTrend;
+    if (!cpuTrendData || cpuTrendData.length === 0) {
+        console.warn('CPU趋势数据为空');
+        return;
+    }
+
+    // 预定义的高对比度颜色组合
+    const predefinedColors = [
+        '#FF6B6B',  // 鲜红色
+        '#4ECDC4',  // 青绿色
+        '#45B7D1',  // 天蓝色
+        '#96CEB4',  // 薄荷绿
+        '#FFD93D',  // 明黄色
+        '#6C5CE7',  // 靛蓝色
+        '#A8E6CF',  // 浅绿色
+        '#FF8B94',  // 粉红色
+        '#A3A1FF',  // 淡紫色
+        '#FFDAC1'   // 杏色
+    ];
+
+    // 生成颜色
+    function generateColor(index) {
+        return predefinedColors[index % predefinedColors.length];
+    }
+
+    // 准备数据集
+    const datasets = cpuTrendData.map((node, index) => ({
+        label: `节点 ${node.node}`,
+        data: Object.entries(node.data).map(([time, value]) => ({
+            x: new Date(time).getTime(),
+            y: parseFloat(value)
+        })),
+        borderColor: generateColor(index),
+        backgroundColor: 'transparent',
+        tension: 0.4,
+        borderWidth: 2
+    }));
+
+    new Chart(chartElement, {
+        type: 'line',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: '最近一小时CPU使用率趋势',
+                    font: {
+                        size: 14
+                    }
+                },
+                legend: {
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'minute',
+                        displayFormats: {
+                            minute: 'HH:mm'
+                        }
+                    },
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        maxRotation: 0
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'CPU使用率 (%)',
+                        font: {
+                            size: 12
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 // 页面加载初始化
 document.addEventListener('DOMContentLoaded', () => {
     try {
         initQueueStatusChart();
         initThroughputChart();
         initPerformanceCharts();
+        initNodeCpuTrendChart();
     } catch (error) {
         console.error('图表初始化失败:', error);
-        // 可在此添加错误提示UI
     }
 });

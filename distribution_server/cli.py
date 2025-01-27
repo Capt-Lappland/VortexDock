@@ -304,6 +304,42 @@ def reset_node_heartbeats():
     conn.close()
     print("计算节点心跳表已重置")
 
+def reset_processing_tasks():
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # 获取所有任务
+        c.execute('SELECT id FROM tasks')
+        tasks = c.fetchall()
+        
+        for task in tasks:
+            task_id = task[0]
+            # 更新配体表中的处理中状态为待处理
+            c.execute(f'''
+                UPDATE task_{task_id}_ligands 
+                SET status = 'pending', 
+                    last_updated = CURRENT_TIMESTAMP 
+                WHERE status = 'processing'
+            ''')
+            
+            # 更新主任务表中的状态
+            c.execute('''
+                UPDATE tasks 
+                SET status = 'pending', 
+                    last_updated = CURRENT_TIMESTAMP 
+                WHERE id = %s AND status = 'processing'
+            ''', (task_id,))
+        
+        conn.commit()
+        print("已将所有处理中的任务重置为待处理状态")
+        
+    except Exception as e:
+        print(f"重置任务状态时出错：{str(e)}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 def main():
     parser = argparse.ArgumentParser(description='分子对接任务管理工具')
     parser.add_argument('-ls', action='store_true', help='列出所有任务')
@@ -313,6 +349,7 @@ def main():
     parser.add_argument('-pause', help='暂停/恢复指定的任务')
     parser.add_argument('-set-password', help='设置服务器密码')
     parser.add_argument('-reset-heartbeats', action='store_true', help='重置计算节点心跳表')
+    parser.add_argument('-reset-processing', action='store_true', help='将所有处理中的任务重置为待处理状态')
     
     args = parser.parse_args()
     
@@ -332,6 +369,8 @@ def main():
         set_server_password(args.set_password)
     elif args.reset_heartbeats:
         reset_node_heartbeats()
+    elif args.reset_processing:
+        reset_processing_tasks()
     else:
         parser.print_help()
 

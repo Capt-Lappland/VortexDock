@@ -9,6 +9,7 @@ $nodePerformance = getNodePerformance($conn);
 $nodeStats = getNodeStats($conn);
 $queueStats = getTaskQueueStats($conn);
 $performanceStats = getTaskPerformanceStats($conn);
+$nodeCpuTrend = getNodeCpuTrend($conn);
 
 $conn->close();
 ?>
@@ -142,6 +143,20 @@ $conn->close();
                     </div>
                 </div>
             </div>
+
+            <!-- 节点CPU使用率趋势 -->
+            <div class="col-12">
+                <div class="card dashboard-card">
+                    <div class="card-header bg-white">
+                        <h5 class="card-title mb-0 text-primary">节点CPU使用率趋势</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="nodeCpuTrendChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -151,10 +166,13 @@ $conn->close();
          data-throughput='<?= htmlspecialchars(json_encode($performanceStats['throughput']), ENT_QUOTES, 'UTF-8') ?>'
          data-daily='<?= htmlspecialchars(json_encode($nodePerformance['daily']), ENT_QUOTES, 'UTF-8') ?>'
          data-hourly='<?= htmlspecialchars(json_encode($nodePerformance['hourly']), ENT_QUOTES, 'UTF-8') ?>'
-         data-minute='<?= htmlspecialchars(json_encode($nodePerformance['minute']), ENT_QUOTES, 'UTF-8') ?>'>
+         data-minute='<?= htmlspecialchars(json_encode($nodePerformance['minute']), ENT_QUOTES, 'UTF-8') ?>'
+         data-cpu-trend='<?= htmlspecialchars(json_encode($nodeCpuTrend), ENT_QUOTES, 'UTF-8') ?>'>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
     <script src="js/charts.js"></script>
 </body>
 </html>
