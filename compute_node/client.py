@@ -399,24 +399,47 @@ class DockingClient:
     def _start_heartbeat_thread(self):
         """启动心跳线程，定期发送心跳包和性能数据"""
         def heartbeat_worker():
+            consecutive_failures = 0
+            max_failures = 3
             while True:
                 try:
+                    # 检查连接状态
+                    if not self.secure_sock:
+                        logger.warning("No active connection, attempting to reconnect...")
+                        if not self.connect_tcp():
+                            consecutive_failures += 1
+                            if consecutive_failures >= max_failures:
+                                logger.error("Maximum reconnection attempts reached")
+                                time.sleep(self.retry_delay * 2)
+                                consecutive_failures = 0
+                            continue
+                    
                     # 获取CPU使用率
                     cpu_usage = self.psutil.cpu_percent(interval=1)
                     # 发送心跳包
                     with self.sock_lock:
-                        self.secure_sock.send_message({
-                        'type': 'heartbeat',
-                        'cpu_usage': cpu_usage
-                    })
-                        response = self.secure_sock.receive_message()
-                    if not response or response.get('status') != 'ok':
-                        logger.warning("Heartbeat failed, attempting to reconnect...")
-                        if not self.connect_tcp():
-                            logger.error("Failed to reconnect during heartbeat")
+                        try:
+                            self.secure_sock.send_message({
+                                'type': 'heartbeat',
+                                'cpu_usage': cpu_usage
+                            })
+                            response = self.secure_sock.receive_message()
+                            if not response or response.get('status') != 'ok':
+                                raise ConnectionError("Invalid heartbeat response")
+                            consecutive_failures = 0  # 重置失败计数
+                        except Exception as e:
+                            logger.warning(f"Heartbeat failed: {e}, attempting to reconnect...")
+                            self.secure_sock = None  # 标记连接为无效
+                            consecutive_failures += 1
+                            if consecutive_failures >= max_failures:
+                                logger.error("Maximum reconnection attempts reached")
+                                time.sleep(self.retry_delay * 2)
+                                consecutive_failures = 0
                 except Exception as e:
                     logger.error(f"Error in heartbeat thread: {e}")
-                time.sleep(self.heartbeat_interval)
+                    time.sleep(self.retry_delay)
+                finally:
+                    time.sleep(self.heartbeat_interval)
         
         # 创建并启动心跳线程
         heartbeat_thread = threading.Thread(target=heartbeat_worker)

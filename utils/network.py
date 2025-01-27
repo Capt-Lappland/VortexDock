@@ -70,6 +70,9 @@ class SSLContextManager:
         self.create_self_signed_cert()
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(certfile=str(self.cert_path), keyfile=str(self.key_path))
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.maximum_version = ssl.TLSVersion.TLSv1_3
+        context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256')
         return context
     
     def get_client_context(self) -> ssl.SSLContext:
@@ -79,6 +82,9 @@ class SSLContextManager:
             context.load_verify_locations(str(self.cert_path))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE  # 开发环境使用自签名证书
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.maximum_version = ssl.TLSVersion.TLSv1_3
+        context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256')
         return context
 
 class ConnectionPool:
