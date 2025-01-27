@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import sys
-sys.path.append('..')
-
 import os
 import json
 import time
@@ -13,6 +10,9 @@ import threading
 import shutil
 from datetime import datetime
 from pathlib import Path
+
+import sys
+sys.path.append('..')
 from utils.logger import logger
 from utils.network import SSLContextManager, SecureSocket
 
@@ -20,7 +20,6 @@ class DockingClient:
     def __init__(self):
         # 加载配置文件
         import config
-        import psutil
         self.debug = config.DEBUG  # 全局调试开关
         logger.info("Initializing DockingClient")
         self.server_host = config.SERVER_CONFIG['host']
@@ -33,7 +32,6 @@ class DockingClient:
         self.task_timeout = config.TASK_CONFIG['task_timeout']
         self.cleanup_interval = config.TASK_CONFIG['cleanup_interval']
         self.cleanup_age = config.TASK_CONFIG['cleanup_age']
-        self.psutil = psutil
         
         # 创建必要的目录
         self.work_dir = Path('work_dir')
@@ -383,6 +381,7 @@ class DockingClient:
                 time.sleep(self.retry_delay)
 
 
+    
     def _start_cleanup_thread(self):
         """启动清理线程，定期清理过期的工作目录文件"""
         def cleanup_worker():

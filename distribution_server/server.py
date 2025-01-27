@@ -17,7 +17,7 @@ DEBUG = True
 
 import sys
 sys.path.append('..')
-from config import DB_CONFIG
+from config import DB_CONFIG, SERVER_CONFIG
 from utils.logger import logger
 from utils.network import SSLContextManager, SecureSocket
 
@@ -41,11 +41,22 @@ def init_connection_pool():
 
 # 数据库连接函数
 def get_db_connection():
-    try:
-        return connection_pool.get_connection()
-    except Exception as e:
-        logger.error(f"Failed to get database connection: {e}")
-        return None
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            connection = connection_pool.get_connection()
+            if connection.is_connected():
+                return connection
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Failed to get database connection (attempt {attempt + 1}/{max_retries}): {e}")
+                time.sleep(retry_delay)
+                continue
+            else:
+                logger.error(f"Failed to get database connection after {max_retries} attempts: {e}")
+    return None
 
 # 数据库初始化
 def init_db():
@@ -58,6 +69,7 @@ def init_db():
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             client_addr VARCHAR(255) NOT NULL,
             cpu_usage FLOAT NOT NULL,
+            memory_usage FLOAT NOT NULL,
             last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_client_addr (client_addr),
@@ -177,9 +189,9 @@ def upload_result_file(task_id, filename):
 
 # TCP 命令服务器
 class TCPServer:
-    def __init__(self, host='0.0.0.0', port=10020):
+    def __init__(self, host='0.0.0.0', port=None):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.bind((host, port))
+        self.sock.bind((host, port or SERVER_CONFIG['tcp_port']))
         self.sock.listen(5)
         self.ssl_context = SSLContextManager().get_server_context()
     
@@ -235,9 +247,9 @@ class TCPServer:
                             
                             # 更新节点心跳和性能数据
                             c.execute('''
-                                INSERT INTO node_heartbeats (client_addr, cpu_usage, last_heartbeat)
-                                VALUES (%s, %s, CURRENT_TIMESTAMP)
-                            ''', (addr[0], command.get('cpu_usage', 0)))
+                                INSERT INTO node_heartbeats (client_addr, cpu_usage, memory_usage, last_heartbeat)
+                                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                            ''', (addr[0], command.get('cpu_usage', 0), command.get('memory_usage', 0)))
                             conn.commit()
                             conn.close()
                             
@@ -398,4 +410,4 @@ if __name__ == '__main__':
     tcp_thread.start()
     
     # 启动 Flask 服务器
-    app.run(host='0.0.0.0', port=9000)
+    app.run(host='0.0.0.0', port=SERVER_CONFIG['http_port'])

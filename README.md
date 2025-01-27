@@ -1,130 +1,110 @@
-# VortexDock: Distributed Molecular Docking System
+# 分子对接分布式计算系统
 
-This is a Python-based distributed molecular docking computation system, consisting of a distribution server and compute nodes. The system supports multiple compute nodes running simultaneously to improve the efficiency of molecular docking calculations.
+这是一个基于 Python 的分布式分子对接计算系统，由分发服务器和计算节点两部分组成。系统支持多个计算节点同时运行，提高分子对接计算的效率。
 
-## System Architecture
+## 系统架构
 
-### Distribution Server
+### 分发服务器 (Distribution Server)
 
-The distribution server is responsible for:
+分发服务器负责：
+- 任务管理和分发
+- 文件存储和传输
+- 进度监控和状态更新
+- 提供 HTTP 和 TCP 服务
 
-- Task management and distribution
-- File storage and transfer
-- Progress monitoring and status updates
-- Providing HTTP and TCP services
+主要组件：
+- `server.py`: 核心服务器程序
+- `cli.py`: 命令行工具
+- `config.py`: 服务器配置文件
 
-Main Components:
-- `server.py`: Core server program
-- `cli.py`: Command-line tool
-- `config.py`: Server configuration file
+### 计算节点 (Compute Node)
 
-### Compute Node
+计算节点负责：
+- 执行分子对接计算
+- 文件下载和上传
+- 结果提交
+- 自动任务获取
 
-The compute node is responsible for:
+主要组件：
+- `client.py`: 计算节点程序
+- `config.py`: 节点配置文件
+- `vina`: AutoDock Vina 可执行文件
 
-- Performing molecular docking calculations
-- File download and upload
-- Result submission
-- Automatic task acquisition
+## 安装步骤
 
-Main Components:
-- `client.py`: Compute node program
-- `daemon.py`: Daemon process program
-- `config.py`: Node configuration file
-- `vina`: AutoDock Vina executable
-
-## Installation Steps
-
-1. Clone the repository
-2. Install dependencies:
+1. 克隆代码仓库
+2. 安装依赖：
    ```bash
    pip install -r requirements.txt
    ```
 
-### Distribution Server Configuration
+### 分发服务器配置
 
-1. Enter distribution_server directory
-2. Modify config.py configuration:
-   - Database connection information
-   - Server ports
-   - Other system parameters
-3. Initialize database:
+1. 进入 distribution_server 目录
+2. 修改 config.py 配置：
+   - 数据库连接信息
+   - 服务器端口
+   - 其他系统参数
+3. 初始化数据库：
    ```bash
    python cli.py
    ```
 
-### Compute Node Configuration
+### 计算节点配置
 
-1. Enter compute_node directory
-2. Modify config.py configuration:
-   - Server connection information
-   - Task parameters
-   - System settings
-3. Ensure vina program has execution permissions
+1. 进入 compute_node 目录
+2. 修改 config.py 配置：
+   - 服务器连接信息
+   - 任务参数
+   - 系统设置
+3. 确保 vina 程序有执行权限
 
-## Usage
+## 使用方法
 
-### Start Distribution Server
+### 启动分发服务器
 
 ```bash
 cd distribution_server
 python server.py
 ```
 
-### Task Management
+### 任务管理
 
-Use command-line tool to manage tasks:
+使用命令行工具管理任务：
 
 ```bash
-# List all tasks
+# 列出所有任务
 python cli.py -ls
 
-# Create new task
-python cli.py -zip <task_file.zip> -name <task_name>
+# 创建新任务
+python cli.py -zip <任务文件.zip> -name <任务名称>
 
-# Pause/Resume task
-python cli.py -pause <task_id>
+# 暂停/恢复任务
+python cli.py -pause <任务ID>
 
-# Delete task
-python cli.py -rm <task_id>
+# 删除任务
+python cli.py -rm <任务ID>
 ```
 
-### Start Compute Node
+### 启动计算节点
 
-The compute node supports two running modes:
-
-1. Direct Running Mode:
 ```bash
 cd compute_node
 python client.py
 ```
 
-2. Daemon Mode (Recommended):
-```bash
-cd compute_node
-python daemon.py start  # Start daemon process
-python daemon.py stop   # Stop daemon process
-python daemon.py status # Check running status
-```
+## 系统特性
 
-Advantages of Daemon Mode:
-- Runs in background, unaffected by terminal closure
-- Automatic monitoring and restart of compute process
-- Lower system resource usage
-- Supports graceful shutdown and status query
+- 分布式计算：支持多节点并行计算
+- 自动负载均衡：智能分配任务
+- 断点续传：支持任务中断后继续
+- 心跳检测：自动检测节点状态
+- 错误重试：自动处理失败任务
+- 文件管理：自动清理临时文件
 
-## System Features
+## 注意事项
 
-- Distributed Computing: Supports parallel computing across multiple nodes
-- Automatic Load Balancing: Intelligent task distribution
-- Breakpoint Resume: Supports task continuation after interruption
-- Heartbeat Detection: Automatic node status detection
-- Error Retry: Automatic handling of failed tasks
-- File Management: Automatic cleanup of temporary files
-
-## Important Notes
-
-1. Ensure database service is running properly
-2. Check network connection and firewall settings
-3. Regularly check disk space
-4. Clean up old task data in a timely manner
+1. 确保数据库服务正常运行
+2. 检查网络连接和防火墙设置
+3. 定期检查磁盘空间
+4. 及时清理旧任务数据

@@ -5,7 +5,10 @@ DB_CONFIG = {
     'password': 'password',
     'database': 'database_name',
     'pool_name': 'mypool',
-    'pool_size': 5
+    'pool_size': 20,  # 增加连接池大小
+    'pool_reset_session': True,  # 重置会话状态
+    'connect_timeout': 10,  # 连接超时时间（秒）
+    'pool_recycle': 3600  # 连接回收时间（秒）
 }
 
 # 服务器配置
@@ -23,7 +26,8 @@ TASK_CONFIG = {
     'task_timeout': 3600,  # 任务超时时间（秒）
     'cleanup_interval': 3600,  # 清理间隔（秒）
     'cleanup_age': 86400,  # 清理阈值（秒）
-    'heartbeat_interval': 30  # 心跳间隔（秒）
+    'heartbeat_interval': 30,  # 心跳间隔（秒）
+    'heartbeat_retry_delay': 5   # 心跳重试延迟（秒）
 }
 
 # 守护进程配置
