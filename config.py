@@ -26,5 +26,13 @@ TASK_CONFIG = {
     'heartbeat_interval': 30
 }
 
+# 守护进程配置
+PROCESS_CONFIG = {
+    'max_processes': 2,
+    'process_start_interval': 5,
+    'min_memory_per_process': 100,
+    'max_cpu_per_process': 1
+}
+
 # 调试配置
 DEBUG = True
