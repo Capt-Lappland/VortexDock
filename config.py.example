@@ -7,8 +7,7 @@ DB_CONFIG = {
     'pool_name': 'mypool',
     'pool_size': 20,  # 增加连接池大小
     'pool_reset_session': True,  # 重置会话状态
-    'connect_timeout': 10,  # 连接超时时间（秒）
-    'pool_recycle': 3600  # 连接回收时间（秒）
+    'connect_timeout': 10  # 连接超时时间（秒）
 }
 
 # 服务器配置
