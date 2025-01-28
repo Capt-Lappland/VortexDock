@@ -293,6 +293,7 @@ def reset_node_heartbeats():
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             client_addr VARCHAR(255) NOT NULL,
             cpu_usage FLOAT NOT NULL,
+            memory_usage FLOAT NOT NULL,
             last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_client_addr (client_addr),
