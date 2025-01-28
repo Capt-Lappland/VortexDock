@@ -80,7 +80,7 @@ def get_node_performance(conn) -> Dict[str, List]:
 
         for task_id in task_ids:
             daily_queries.append(f"""
-                SELECT DATE(last_updated) as date, COUNT(*) as task_completed 
+                SELECT DATE_FORMAT(last_updated, '%m-%d') as date, COUNT(*) as task_completed 
                 FROM task_{task_id}_ligands 
                 WHERE status = 'completed' 
                 AND last_updated >= NOW() - INTERVAL 7 DAY
