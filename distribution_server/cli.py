@@ -94,6 +94,13 @@ def create_task(zip_path, name):
         print(f"错误：找不到文件 {zip_path}")
         return
     
+    c.execute('SELECT id FROM tasks WHERE id = %s', (name,))
+    if c.fetchone():
+        print(f"错误：任务名称 '{name}' 已存在，请使用不同的名称。")
+        conn.rollback()
+        conn.close()
+        return
+    
     # 创建临时目录解压文件
     temp_dir = Path('temp_extract')
     temp_dir.mkdir(exist_ok=True)

@@ -21,6 +21,7 @@ class DockingClient:
         # 加载配置文件
         import config
         self.debug = config.DEBUG  # 全局调试开关
+        self.receptor_cache_lock = threading.Lock() # 受体缓存全局锁
         logger.info("Initializing DockingClient")
         self.server_host = config.SERVER_CONFIG['host']
         self.http_port = config.SERVER_CONFIG['http_port']
@@ -129,14 +130,15 @@ class DockingClient:
         
         # 如果是receptor文件，先检查缓存
         if filename == 'receptor.pdbqt':
-            cached_receptor = self.receptor_cache_dir / f"{task_id}_receptor.pdbqt"
-            if cached_receptor.exists():
-                logger.info(f"Using cached receptor file for task {task_id}")
-                task_dir = self.work_dir / str(task_id)
-                task_dir.mkdir(exist_ok=True)
-                receptor_dest = task_dir / filename
-                shutil.copy2(cached_receptor, receptor_dest)
-                return receptor_dest
+            with self.receptor_cache_lock:  # 加锁
+                cached_receptor = self.receptor_cache_dir / f"{task_id}_receptor.pdbqt"
+                if cached_receptor.exists():
+                    logger.info(f"使用缓存的receptor文件（任务ID: {task_id}）")
+                    task_dir = self.work_dir / str(task_id)
+                    task_dir.mkdir(exist_ok=True)
+                    receptor_dest = task_dir / filename
+                    shutil.copy2(cached_receptor, receptor_dest)
+                    return receptor_dest
         
         while retries < self.max_retries:
             try:
@@ -164,10 +166,10 @@ class DockingClient:
                 
                 # 如果是receptor文件，保存到缓存
                 if filename == 'receptor.pdbqt':
-                    cached_receptor = self.receptor_cache_dir / f"{task_id}_receptor.pdbqt"
-                    shutil.copy2(input_path, cached_receptor)
-                    logger.info(f"Cached receptor file for task {task_id}")
-                
+                    with self.receptor_cache_lock:  # 加锁
+                        cached_receptor = self.receptor_cache_dir / f"{task_id}_receptor.pdbqt"
+                        shutil.copy2(input_path, cached_receptor)
+                        logger.info(f"已缓存receptor文件（任务ID: {task_id}）")
                 return input_path
             
             except (requests.exceptions.RequestException, IOError) as e:
