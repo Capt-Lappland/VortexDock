@@ -1,3 +1,4 @@
-flask==3.0.0
 requests==2.31.0
-mysql-connector-python==8.2.0
+flask==2.0.3
+mysql-connector-python==8.0.26
+cryptography==36.0.1
