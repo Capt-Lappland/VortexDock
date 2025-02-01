@@ -1,164 +1,64 @@
 # -*- coding: utf-8 -*-
 
 import os
+import sys
 import json
 import socket
-import mysql.connector
 import threading
 import time
 from datetime import datetime, timedelta
 from flask import Flask, request, send_file
 from werkzeug.utils import secure_filename
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.db import init_connection_pool, init_database, execute_query, execute_update
+from utils.logger import logger
+from utils.network import SSLContextManager, SecureSocket
+from config import SERVER_CONFIG
+
 app = Flask(__name__)
 
 # 全局调试开关
 DEBUG = True
 
-import sys
-sys.path.append('..')
-from config import DB_CONFIG, SERVER_CONFIG
-from utils.logger import logger
-from utils.network import SSLContextManager, SecureSocket
-
-# 导入连接池模块
-from mysql.connector import pooling
-
 # 任务超时时间（秒）
 TASK_TIMEOUT = 3600
 
-# 创建数据库连接池
-connection_pool = None
-
-def init_connection_pool():
-    global connection_pool
-    try:
-        connection_pool = mysql.connector.pooling.MySQLConnectionPool(**DB_CONFIG)
-        logger.info("Database connection pool initialized successfully")
-    except Exception as e:
-        logger.critical(f"Failed to initialize database connection pool: {e}")
-        sys.exit(1)
-
-# 数据库连接函数
-def get_db_connection():
-    max_retries = 3
-    retry_delay = 1
-    
-    for attempt in range(max_retries):
-        try:
-            connection = connection_pool.get_connection()
-            if connection.is_connected():
-                return connection
-        except Exception as e:
-            if attempt < max_retries - 1:
-                logger.warning(f"Failed to get database connection (attempt {attempt + 1}/{max_retries}): {e}")
-                time.sleep(retry_delay)
-                continue
-            else:
-                logger.error(f"Failed to get database connection after {max_retries} attempts: {e}")
-    return None
-
-# 数据库初始化
-def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    # 创建计算节点心跳表
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS node_heartbeats (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            client_addr VARCHAR(255) NOT NULL,
-            cpu_usage FLOAT NOT NULL,
-            memory_usage FLOAT NOT NULL,
-            last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_client_addr (client_addr),
-            INDEX idx_last_heartbeat (last_heartbeat)
-        )
-    ''')
-    
-    # 创建服务器认证表
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS server_auth (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            password_hash VARCHAR(255) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id VARCHAR(255) PRIMARY KEY,
-            status VARCHAR(50),
-            center_x FLOAT,
-            center_y FLOAT,
-            center_z FLOAT,
-            size_x FLOAT,
-            size_y FLOAT,
-            size_z FLOAT,
-            num_modes INT,
-            energy_range FLOAT,
-            cpu INT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # 获取所有任务并为每个任务创建配体表
-    c.execute('SELECT id FROM tasks')
-    tasks = c.fetchall()
-    for task in tasks:
-        task_id = task[0]
-        c.execute(f'''
-            CREATE TABLE IF NOT EXISTS task_{task_id}_ligands (
-                ligand_id VARCHAR(255) PRIMARY KEY,
-                ligand_file VARCHAR(255),
-                status VARCHAR(50) DEFAULT 'pending',
-                output_file VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-    
-    conn.commit()
-    conn.close()
+# 初始化数据库连接池和表结构
+init_connection_pool()
+init_database()
 
 # 检查并重置超时任务
 def check_timeout_tasks():
     while True:
         try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            
-            # 获取所有处理中的配体任务
             timeout_time = datetime.now() - timedelta(seconds=TASK_TIMEOUT)
-            c.execute('SELECT id FROM tasks')
-            tasks = c.fetchall()
             
+            # 获取所有任务
+            tasks = execute_query("SELECT id FROM tasks")
             for task in tasks:
-                task_id = task[0]
+                task_id = task['id']
+                
                 # 检查超时的配体任务
-                c.execute(f'''
+                ligands = execute_query(f"""
                     SELECT ligand_id, status, COUNT(*) as retry_count
                     FROM task_{task_id}_ligands
                     WHERE status IN ('processing', 'failed')
                     AND last_updated < %s
                     GROUP BY ligand_id, status
-                ''', (timeout_time,))
+                """, (timeout_time,))
                 
-                for ligand in c.fetchall():
-                    ligand_id, status, retry_count = ligand
+                for ligand in ligands:
+                    ligand_id, status, retry_count = ligand['ligand_id'], ligand['status'], ligand['retry_count']
                     new_status = 'failed' if retry_count >= 3 else 'pending'
                     logger.info(f"Task {task_id} ligand {ligand_id} {status} -> {new_status} (retries: {retry_count})")
                     
-                    c.execute(f'''
+                    execute_update(f"""
                         UPDATE task_{task_id}_ligands
                         SET status = %s, last_updated = CURRENT_TIMESTAMP
                         WHERE ligand_id = %s
-                    ''', (new_status, ligand_id))
+                    """, (new_status, ligand_id))
             
-            conn.commit()
-            conn.close()
         except Exception as e:
             logger.error(f"Error checking timeout tasks: {e}")
         
@@ -198,18 +98,17 @@ class TCPServer:
     def verify_password(self, password):
         """验证客户端提供的密码"""
         try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute('SELECT password_hash FROM server_auth ORDER BY created_at DESC LIMIT 1')
-            result = c.fetchone()
-            conn.close()
+            result = execute_query(
+                'SELECT password_hash FROM server_auth ORDER BY created_at DESC LIMIT 1',
+                fetch_one=True
+            )
             
             if not result:
                 logger.warning("No server password set")
                 return True
             
             import bcrypt
-            stored_hash = result[0].encode() if isinstance(result[0], str) else result[0]
+            stored_hash = result['password_hash'].encode() if isinstance(result['password_hash'], str) else result['password_hash']
             return bcrypt.checkpw(password.encode(), stored_hash)
         except Exception as e:
             logger.error(f"Error verifying password: {e}")
@@ -242,16 +141,10 @@ class TCPServer:
                     if command['type'] == 'heartbeat':
                         # 处理心跳消息和性能数据
                         try:
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            
-                            # 更新节点心跳和性能数据
-                            c.execute('''
+                            execute_update('''
                                 INSERT INTO node_heartbeats (client_addr, cpu_usage, memory_usage, last_heartbeat)
                                 VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                             ''', (addr[0], command.get('cpu_usage', 0), command.get('memory_usage', 0)))
-                            conn.commit()
-                            conn.close()
                             
                             secure_sock.send_message({'status': 'ok'})
                         except Exception as e:
@@ -261,15 +154,9 @@ class TCPServer:
                     elif command['type'] == 'get_task':
                         logger.debug(f"Client {addr} requesting task")
                         # 获取待处理任务
-                        conn = get_db_connection()
-                        c = conn.cursor()
-                        
                         try:
-                            # 开始事务
-                            conn.start_transaction()
-                            
-                            # 首先获取一个待处理的任务，优先选择进行中的任务
-                            c.execute('''
+                            # 获取一个待处理的任务，优先选择进行中的任务
+                            task = execute_query('''
                                 SELECT id,
                                 center_x, center_y, center_z,
                                 size_x, size_y, size_z,
@@ -282,72 +169,59 @@ class TCPServer:
                                         WHEN 'pending' THEN 1
                                     END,
                                     created_at ASC LIMIT 1
-                                FOR UPDATE
-                            ''')
-                            task = c.fetchone()
+                            ''', fetch_one=True)
                             
                             if task:
-                                (task_id,
-                                 center_x, center_y, center_z,
-                                 size_x, size_y, size_z,
-                                 num_modes, energy_range, cpu) = task
+                                task_id = task['id']
                                 
-                                # 从该任务的配体表中获取一个待处理的配体，使用行级锁
-                                c.execute(f'''
+                                # 从该任务的配体表中获取一个待处理的配体
+                                ligand = execute_query(f'''
                                     SELECT ligand_id, ligand_file 
                                     FROM task_{task_id}_ligands 
                                     WHERE status = 'pending' 
                                     ORDER BY created_at ASC LIMIT 1
-                                    FOR UPDATE
-                                ''')
-                                ligand = c.fetchone()
+                                ''', fetch_one=True)
                                 
                                 if ligand:
-                                    ligand_id, ligand_file = ligand
+                                    ligand_id, ligand_file = ligand['ligand_id'], ligand['ligand_file']
                                     logger.info(f"Assigning task {task_id} ligand {ligand_id} to client {addr}")
                                     
                                     # 更新配体状态和时间戳
-                                    c.execute(f'''
+                                    execute_update(f'''
                                         UPDATE task_{task_id}_ligands 
                                         SET status = 'processing', last_updated = CURRENT_TIMESTAMP 
                                         WHERE ligand_id = %s
                                     ''', (ligand_id,))
-                                    # 提交事务
-                                    # 提交事务
-                                    conn.commit()
                                     
                                     response = {
                                         'task_id': task_id,
                                         'ligand_id': ligand_id,
                                         'ligand_file': ligand_file,
                                         'params': {
-                                            'center_x': center_x,
-                                            'center_y': center_y,
-                                            'center_z': center_z,
-                                            'size_x': size_x,
-                                            'size_y': size_y,
-                                            'size_z': size_z,
-                                            'num_modes': num_modes,
-                                            'energy_range': energy_range,
-                                            'cpu': cpu
+                                            'center_x': task['center_x'],
+                                            'center_y': task['center_y'],
+                                            'center_z': task['center_z'],
+                                            'size_x': task['size_x'],
+                                            'size_y': task['size_y'],
+                                            'size_z': task['size_z'],
+                                            'num_modes': task['num_modes'],
+                                            'energy_range': task['energy_range'],
+                                            'cpu': task['cpu']
                                         }
                                     }
                                 else:
                                     logger.debug(f"No pending ligands for task {task_id}")
                                     # 如果该任务的所有配体都已处理完，将任务标记为已完成
-                                    c.execute('UPDATE tasks SET status = %s WHERE id = %s',
-                                            ('completed', task_id))
-                                    # 提交事务
-                                    # 提交事务
-                                    conn.commit()
+                                    execute_update('UPDATE tasks SET status = %s WHERE id = %s', ('completed', task_id))
                                     response = {'task_id': None}
                             else:
                                 logger.debug("No pending tasks available")
                                 response = {'task_id': None}
-                        finally:
-                            conn.close()
-                        
-                        secure_sock.send_message(response)
+                            
+                            secure_sock.send_message(response)
+                        except Exception as e:
+                            logger.error(f"Error getting task: {e}")
+                            secure_sock.send_message({'status': 'error'})
                     
                     elif command['type'] == 'submit_result':
                         task_id = command['task_id']
@@ -355,17 +229,12 @@ class TCPServer:
                         logger.info(f"Client {addr} submitting result for task {task_id} ligand {ligand_id}")
                         
                         try:
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            
                             # 更新配体状态和结果
-                            c.execute(f'''
+                            execute_update(f'''
                                 UPDATE task_{task_id}_ligands 
                                 SET status = %s, output_file = %s, last_updated = CURRENT_TIMESTAMP 
                                 WHERE ligand_id = %s
                             ''', ('completed', os.path.join('results', str(task_id), command['output_file']), ligand_id))
-                            conn.commit()
-                            conn.close()
                             
                             secure_sock.send_message({'status': 'ok'})
                         except Exception as e:
@@ -384,20 +253,13 @@ class TCPServer:
         while True:
             client, addr = self.sock.accept()
             logger.info(f"New connection from {addr}")
-            thread = threading.Thread(target=self.handle_client,
-                                   args=(client, addr))
+            thread = threading.Thread(target=self.handle_client, args=(client, addr))
             thread.start()
 
 if __name__ == '__main__':
     # 创建必要的目录
     os.makedirs('uploads', exist_ok=True)
     os.makedirs('results', exist_ok=True)
-    
-    # 初始化数据库连接池
-    init_connection_pool()
-    
-    # 初始化数据库
-    init_db()
     
     # 启动任务超时检查线程
     timeout_thread = threading.Thread(target=check_timeout_tasks)

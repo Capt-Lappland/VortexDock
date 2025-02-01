@@ -9,11 +9,14 @@ env/
 
 # Project specific
 work_dir/
+receptor_cache/
 uploads/
 results/
 certs/
+tasks/
 config.py
 *.zip
+
 
 # Logs
 *.log
@@ -24,3 +27,10 @@ logs/
 .cache/
 .pytest_cache/
 .coverage
+
+# System
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

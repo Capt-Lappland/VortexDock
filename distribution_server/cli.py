@@ -1,20 +1,11 @@
 import os
 import sys
 import zipfile
-import mysql.connector
 import argparse
 from pathlib import Path
 
-import sys
 sys.path.append('..')
-from config import DB_CONFIG
-
-def get_db_connection():
-    try:
-        return mysql.connector.connect(**DB_CONFIG)
-    except mysql.connector.Error as e:
-        print(f"数据库连接失败: {e}")
-        return None
+from utils.db import execute_query, execute_update, get_db_connection
 
 def init_db():
     conn = get_db_connection()
@@ -43,11 +34,7 @@ def init_db():
     conn.close()
 
 def list_tasks():
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    c.execute('SELECT id, status, created_at FROM tasks')
-    tasks = c.fetchall()
+    tasks = execute_query('SELECT id, status, created_at FROM tasks')
     
     if not tasks:
         print("没有找到任务")
@@ -55,30 +42,25 @@ def list_tasks():
         print("任务列表:")
         print("ID\t状态\t进度\t\t速度(个/分钟)\t创建时间")
         for task in tasks:
-            task_id = task[0]
+            task_id = task['id']
             # 获取该任务的配体总数和已完成数
-            c.execute(f'SELECT COUNT(*) FROM task_{task_id}_ligands')
-            total = c.fetchone()[0]
-            c.execute(f'SELECT COUNT(*) FROM task_{task_id}_ligands WHERE status = "completed"')
-            completed = c.fetchone()[0]
+            total = execute_query(f'SELECT COUNT(*) as count FROM task_{task_id}_ligands', fetch_one=True)['count']
+            completed = execute_query(f'SELECT COUNT(*) as count FROM task_{task_id}_ligands WHERE status = "completed"', fetch_one=True)['count']
             
             # 计算进度百分比
             progress = completed / total if total > 0 else 0
             progress_bar = create_progress_bar(progress)
             
             # 计算最近5分钟的处理速度
-            c.execute(f'''
-                SELECT COUNT(*) 
+            recent_completed = execute_query(f'''
+                SELECT COUNT(*) as count
                 FROM task_{task_id}_ligands 
                 WHERE status = 'completed' 
                 AND last_updated >= NOW() - INTERVAL 5 MINUTE
-            ''')
-            recent_completed = c.fetchone()[0]
+            ''', fetch_one=True)['count']
             speed = recent_completed / 5 if recent_completed > 0 else 0
             
-            print(f"{task_id}\t{task[1]}\t{progress_bar}\t{speed:.1f}\t\t{task[2]}")
-    
-    conn.close()
+            print(f"{task_id}\t{task['status']}\t{progress_bar}\t{speed:.1f}\t\t{task['created_at']}")
 
 def create_progress_bar(progress, width=20):
     filled = int(width * progress)
@@ -86,19 +68,14 @@ def create_progress_bar(progress, width=20):
     bar = '=' * filled + '>' + ' ' * empty if filled < width else '=' * width
     percentage = int(progress * 100)
     return f'[{bar}] {percentage}%'
-    
-    conn.close()
 
 def create_task(zip_path, name):
     if not os.path.exists(zip_path):
         print(f"错误：找不到文件 {zip_path}")
         return
     
-    c.execute('SELECT id FROM tasks WHERE id = %s', (name,))
-    if c.fetchone():
+    if execute_query('SELECT id FROM tasks WHERE id = %s', (name,), fetch_one=True):
         print(f"错误：任务名称 '{name}' 已存在，请使用不同的名称。")
-        conn.rollback()
-        conn.close()
         return
     
     # 创建临时目录解压文件
@@ -145,7 +122,7 @@ def create_task(zip_path, name):
                     params[key.strip()] = value.strip()
         
         # 插入主任务记录
-        c.execute('''
+        execute_update('''
             INSERT INTO tasks (
                 id, status,
                 center_x, center_y, center_z,
@@ -161,7 +138,7 @@ def create_task(zip_path, name):
         ))
         
         # 创建任务特定的配体表
-        c.execute(f'''
+        execute_update(f'''
             CREATE TABLE IF NOT EXISTS task_{name}_ligands (
                 ligand_id VARCHAR(255) PRIMARY KEY,
                 ligand_file VARCHAR(255),
@@ -179,7 +156,7 @@ def create_task(zip_path, name):
             ligand_dest = ligands_dir / ligand_file.name
             ligand_file.rename(ligand_dest)
             
-            c.execute(f'''
+            execute_update(f'''
                 INSERT INTO task_{name}_ligands (ligand_id, ligand_file)
                 VALUES (%s, %s)
             ''', (ligand_id, ligand_file.name))
@@ -198,23 +175,17 @@ def create_task(zip_path, name):
             shutil.rmtree(temp_dir)
 
 def remove_task(task_id):
-    conn = get_db_connection()
-    c = conn.cursor()
-    
     try:
         # 检查任务是否存在
-        c.execute('SELECT id FROM tasks WHERE id = %s', (task_id,))
-        if not c.fetchone():
+        if not execute_query('SELECT id FROM tasks WHERE id = %s', (task_id,), fetch_one=True):
             print(f"错误：找不到任务 {task_id}")
             return
         
         # 删除任务记录
-        c.execute('DELETE FROM tasks WHERE id = %s', (task_id,))
+        execute_update('DELETE FROM tasks WHERE id = %s', (task_id,))
         
         # 删除任务的配体表
-        c.execute(f'DROP TABLE IF EXISTS task_{task_id}_ligands')
-        
-        conn.commit()
+        execute_update(f'DROP TABLE IF EXISTS task_{task_id}_ligands')
         
         # 删除任务相关文件
         task_dir = Path('tasks') / task_id
@@ -230,101 +201,76 @@ def remove_task(task_id):
         
     except Exception as e:
         print(f"删除任务时出错：{str(e)}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 def pause_task(task_id):
-    conn = get_db_connection()
-    c = conn.cursor()
-    
     try:
         # 检查任务是否存在
-        c.execute('SELECT status FROM tasks WHERE id = %s', (task_id,))
-        task = c.fetchone()
+        task = execute_query('SELECT status FROM tasks WHERE id = %s', (task_id,), fetch_one=True)
         if not task:
             print(f"错误：找不到任务 {task_id}")
             return
         
-        current_status = task[0]
+        current_status = task['status']
         new_status = 'paused' if current_status == 'pending' else 'pending'
         
         # 更新任务状态
-        c.execute('UPDATE tasks SET status = %s WHERE id = %s', (new_status, task_id))
-        conn.commit()
+        execute_update('UPDATE tasks SET status = %s WHERE id = %s', (new_status, task_id))
         
         action = '暂停' if new_status == 'paused' else '恢复'
         print(f"成功{action}任务 {task_id}")
         
     except Exception as e:
         print(f"更新任务状态时出错：{str(e)}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 def set_server_password(password):
-    conn = get_db_connection()
-    c = conn.cursor()
-    
     try:
         # 生成密码哈希
         import bcrypt
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
         
         # 清除旧的认证信息
-        c.execute('DELETE FROM server_auth')
+        execute_update('DELETE FROM server_auth')
         
         # 插入新的认证信息
-        c.execute('''
+        execute_update('''
             INSERT INTO server_auth (password_hash)
             VALUES (%s)
         ''', (password_hash.decode('utf-8'),))
         
-        conn.commit()
         print("服务器密码设置成功")
         
     except Exception as e:
         print(f"设置密码时出错：{str(e)}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 def reset_node_heartbeats():
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    # 删除并重新创建node_heartbeats表
-    c.execute('DROP TABLE IF EXISTS node_heartbeats')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS node_heartbeats (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            client_addr VARCHAR(255) NOT NULL,
-            cpu_usage FLOAT NOT NULL,
-            memory_usage FLOAT NOT NULL,
-            last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_client_addr (client_addr),
-            INDEX idx_last_heartbeat (last_heartbeat)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print("计算节点心跳表已重置")
+    try:
+        # 删除并重新创建node_heartbeats表
+        execute_update('DROP TABLE IF EXISTS node_heartbeats')
+        execute_update('''
+            CREATE TABLE IF NOT EXISTS node_heartbeats (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                client_addr VARCHAR(255) NOT NULL,
+                cpu_usage FLOAT NOT NULL,
+                memory_usage FLOAT NOT NULL,
+                last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_client_addr (client_addr),
+                INDEX idx_last_heartbeat (last_heartbeat)
+            )
+        ''')
+        print("计算节点心跳表已重置")
+    except Exception as e:
+        print(f"重置计算节点心跳表时出错：{str(e)}")
 
 def reset_processing_tasks():
-    conn = get_db_connection()
-    c = conn.cursor()
-    
     try:
         # 获取所有任务
-        c.execute('SELECT id FROM tasks')
-        tasks = c.fetchall()
+        tasks = execute_query('SELECT id FROM tasks')
         
         for task in tasks:
-            task_id = task[0]
+            task_id = task['id']
             # 更新配体表中的处理中状态为待处理
-            c.execute(f'''
+            execute_update(f'''
                 UPDATE task_{task_id}_ligands 
                 SET status = 'pending', 
                     last_updated = CURRENT_TIMESTAMP 
@@ -332,21 +278,17 @@ def reset_processing_tasks():
             ''')
             
             # 更新主任务表中的状态
-            c.execute('''
+            execute_update('''
                 UPDATE tasks 
                 SET status = 'pending', 
                     last_updated = CURRENT_TIMESTAMP 
                 WHERE id = %s AND status = 'processing'
             ''', (task_id,))
         
-        conn.commit()
         print("已将所有处理中的任务重置为待处理状态")
         
     except Exception as e:
         print(f"重置任务状态时出错：{str(e)}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 def main():
     parser = argparse.ArgumentParser(description='分子对接任务管理工具')
