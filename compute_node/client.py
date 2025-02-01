@@ -366,6 +366,7 @@ class DockingClient:
                                           receptor_file, ligand_file, task['params'])
                 if not output_path:
                     logger.error("Docking failed")
+                    self._mark_ligand_failed(task['task_id'], task['ligand_id'])
                     continue
                 
                 # 提交结果
@@ -376,6 +377,7 @@ class DockingClient:
             
             except Exception as e:
                 logger.error(f"Unexpected error: {e}")
+                self._mark_ligand_failed(task['task_id'], task['ligand_id'])
                 # 如果发生错误，尝试重新建立连接
                 if not self.connect_tcp():
                     logger.error("Failed to reconnect to server, exiting...")
@@ -410,6 +412,23 @@ class DockingClient:
         cleanup_thread.daemon = True  # 设置为守护线程
         cleanup_thread.start()
         logger.info("Cleanup thread started")
+
+    def _mark_ligand_failed(self, task_id, ligand_id):
+        """标记配体为失败状态"""
+        try:
+            data = {
+                'type': 'submit_result',
+                'task_id': task_id,
+                'ligand_id': ligand_id,
+                'output_file': None,
+                'status': 'failed'
+            }
+            self.secure_sock.send_message(data)
+            response = self.secure_sock.receive_message()
+            return response and response.get('status') == 'ok'
+        except Exception as e:
+            logger.error(f"Failed to mark ligand as failed: {e}")
+            return False
 
 if __name__ == '__main__':
     client = DockingClient()

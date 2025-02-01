@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.db import init_connection_pool, init_database, execute_query, execute_update
 from utils.logger import logger
 from utils.network import SSLContextManager, SecureSocket
-from config import SERVER_CONFIG
+from config import SERVER_CONFIG, TASK_CONFIG
 
 app = Flask(__name__)
 
@@ -22,7 +22,7 @@ app = Flask(__name__)
 DEBUG = True
 
 # 任务超时时间（秒）
-TASK_TIMEOUT = 3600
+TASK_TIMEOUT = 300
 
 # 初始化数据库连接池和表结构
 init_connection_pool()
@@ -34,12 +34,12 @@ def check_timeout_tasks():
         try:
             timeout_time = datetime.now() - timedelta(seconds=TASK_TIMEOUT)
             
-            # 获取所有任务
-            tasks = execute_query("SELECT id FROM tasks")
+            # 获取所有未完成的任务
+            tasks = execute_query("SELECT id FROM tasks WHERE status NOT IN ('completed', 'failed')")
             for task in tasks:
                 task_id = task['id']
                 
-                # 检查超时的配体任务
+                # 检查超时的配体（包含失败状态的配体）
                 ligands = execute_query(f"""
                     SELECT ligand_id, status, COUNT(*) as retry_count
                     FROM task_{task_id}_ligands
@@ -49,20 +49,40 @@ def check_timeout_tasks():
                 """, (timeout_time,))
                 
                 for ligand in ligands:
-                    ligand_id, status, retry_count = ligand['ligand_id'], ligand['status'], ligand['retry_count']
-                    new_status = 'failed' if retry_count >= 3 else 'pending'
+                    ligand_id = ligand['ligand_id']
+                    status = ligand['status']
+                    retry_count = ligand['retry_count']
+                    
+                    # 失败次数超过阈值则标记为最终失败
+                    if retry_count >= TASK_CONFIG['max_retries']:
+                        new_status = 'failed'
+                    else:
+                        new_status = 'pending' if status == 'processing' else 'failed'
+                        retry_count += 1  # 增加重试计数
+
                     logger.info(f"Task {task_id} ligand {ligand_id} {status} -> {new_status} (retries: {retry_count})")
                     
                     execute_update(f"""
                         UPDATE task_{task_id}_ligands
-                        SET status = %s, last_updated = CURRENT_TIMESTAMP
+                        SET status = %s,
+                            retry_count = %s,
+                            last_updated = CURRENT_TIMESTAMP
                         WHERE ligand_id = %s
-                    """, (new_status, ligand_id))
-            
+                    """, (new_status, retry_count, ligand_id))
+                
+                # 检查任务是否完全失败
+                remaining = execute_query(f"""
+                    SELECT COUNT(*) as count 
+                    FROM task_{task_id}_ligands 
+                    WHERE status NOT IN ('completed', 'failed')
+                """, fetch_one=True)['count']
+                
+                if remaining == 0:
+                    execute_update("UPDATE tasks SET status = 'completed' WHERE id = %s", (task_id,))
+
         except Exception as e:
             logger.error(f"Error checking timeout tasks: {e}")
         
-        # 每分钟检查一次
         time.sleep(60)
 
 # HTTP 文件服务器
@@ -226,16 +246,30 @@ class TCPServer:
                     elif command['type'] == 'submit_result':
                         task_id = command['task_id']
                         ligand_id = command['ligand_id']
-                        logger.info(f"Client {addr} submitting result for task {task_id} ligand {ligand_id}")
+                        status = command.get('status', 'completed')  # 新增状态字段
                         
                         try:
-                            # 更新配体状态和结果
-                            execute_update(f'''
-                                UPDATE task_{task_id}_ligands 
-                                SET status = %s, output_file = %s, last_updated = CURRENT_TIMESTAMP 
-                                WHERE ligand_id = %s
-                            ''', ('completed', os.path.join('results', str(task_id), command['output_file']), ligand_id))
+                            # 根据提交状态更新
+                            if status == 'completed':
+                                update_sql = '''
+                                    UPDATE task_{task_id}_ligands 
+                                    SET status = %s, 
+                                        output_file = %s, 
+                                        last_updated = CURRENT_TIMESTAMP 
+                                    WHERE ligand_id = %s
+                                '''
+                                params = ('completed', os.path.join('results', str(task_id), command['output_file']), ligand_id)
+                            else:
+                                update_sql = '''
+                                    UPDATE task_{task_id}_ligands 
+                                    SET status = 'failed',
+                                        retry_count = retry_count + 1,
+                                        last_updated = CURRENT_TIMESTAMP 
+                                    WHERE ligand_id = %s
+                                '''
+                                params = (ligand_id,)
                             
+                            execute_update(update_sql.format(task_id=task_id), params)
                             secure_sock.send_message({'status': 'ok'})
                         except Exception as e:
                             logger.error(f"Error updating task status: {e}")

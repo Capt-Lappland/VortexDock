@@ -119,6 +119,7 @@ def init_database():
                     ligand_id VARCHAR(255) PRIMARY KEY,
                     ligand_file VARCHAR(255) NOT NULL,
                     status VARCHAR(50) DEFAULT 'pending',
+                    retry_count INT DEFAULT 0,  # 新增重试计数字段
                     output_file VARCHAR(255),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
