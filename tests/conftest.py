@@ -1,13 +1,17 @@
+import os
+import sys
 import pytest
 import shutil
-from utils.db import init_connection_pool, init_database
+from pathlib import Path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.db import init_connection_pool, init_database, get_db_connection
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """全局测试环境配置"""
     # 使用测试数据库配置
     import config
-    config.DB_CONFIG['database_mysql'] = 'test_vortexdock'
+    config.DB_CONFIG['database_mysql'] = 'vortexdock'
     
     # 初始化测试数据库
     init_connection_pool()

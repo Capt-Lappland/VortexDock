@@ -1,7 +1,10 @@
+import os
+import sys
 import pytest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
-from server import check_timeout_tasks
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from distribution_server.server import check_timeout_tasks
 
 class MockRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):

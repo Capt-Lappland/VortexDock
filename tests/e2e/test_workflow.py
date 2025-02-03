@@ -9,7 +9,7 @@ def test_full_workflow(tmp_path):
     """完整流程测试：创建任务->处理->获取结果"""
     # 1. 创建测试任务
     cp_result = subprocess.run(
-        ["python", "cli.py", "-zip", SAMPLE_ZIP, "-name", "e2e_test"],
+        ["python", "./compute_node/cli.py", "-zip", SAMPLE_ZIP, "-name", "e2e_test"],
         capture_output=True,
         text=True
     )
@@ -22,7 +22,7 @@ def test_full_workflow(tmp_path):
     try:
         # 3. 启动客户端处理
         client_proc = subprocess.Popen(["python", "client.py"])
-        time.sleep(10)  # 等待任务处理
+        time.sleep(20)  # 等待任务处理
         
         # 4. 验证任务状态
         ls_result = subprocess.run(

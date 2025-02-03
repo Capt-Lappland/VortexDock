@@ -282,10 +282,38 @@ def reset_processing_tasks():
                 UPDATE tasks 
                 SET status = 'pending', 
                     last_updated = CURRENT_TIMESTAMP 
-                WHERE id = %s AND status = 'processing'
+                WHERE id = %s
             ''', (task_id,))
         
         print("已将所有处理中的任务重置为待处理状态")
+        
+    except Exception as e:
+        print(f"重置任务状态时出错：{str(e)}")
+        
+def reset_failed_tasks():
+    try:
+        # 获取所有任务
+        tasks = execute_query('SELECT id FROM tasks')
+        
+        for task in tasks:
+            task_id = task['id']
+            # 更新配体表中的处理中状态为待处理
+            execute_update(f'''
+                UPDATE task_{task_id}_ligands 
+                SET status = 'pending', 
+                    last_updated = CURRENT_TIMESTAMP 
+                WHERE status = 'failed'
+            ''')
+            
+            # 更新主任务表中的状态
+            execute_update('''
+                UPDATE tasks 
+                SET status = 'pending', 
+                    last_updated = CURRENT_TIMESTAMP 
+                WHERE id = %s
+            ''', (task_id,))
+        
+        print("已将所有失败的任务重置为待处理状态")
         
     except Exception as e:
         print(f"重置任务状态时出错：{str(e)}")
@@ -300,6 +328,7 @@ def main():
     parser.add_argument('-set-password', help='设置服务器密码')
     parser.add_argument('-reset-heartbeats', action='store_true', help='重置计算节点心跳表')
     parser.add_argument('-reset-processing', action='store_true', help='将所有处理中的任务重置为待处理状态')
+    parser.add_argument('-reset-failed', action='store_true', help='将所有失败的任务重置为待处理状态')
     
     args = parser.parse_args()
     
@@ -321,6 +350,8 @@ def main():
         reset_node_heartbeats()
     elif args.reset_processing:
         reset_processing_tasks()
+    elif args.reset_failed:
+        reset_failed_tasks()
     else:
         parser.print_help()
 

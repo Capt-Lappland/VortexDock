@@ -57,7 +57,7 @@ def check_timeout_tasks():
                     if retry_count >= TASK_CONFIG['max_retries']:
                         new_status = 'failed'
                     else:
-                        new_status = 'pending' if status == 'processing' else 'failed'
+                        new_status = 'pending'
                         retry_count += 1  # 增加重试计数
 
                     logger.info(f"Task {task_id} ligand {ligand_id} {status} -> {new_status} (retries: {retry_count})")

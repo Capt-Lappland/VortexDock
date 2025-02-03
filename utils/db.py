@@ -27,7 +27,7 @@ def init_connection_pool():
             host=DB_CONFIG['host'],
             user=DB_CONFIG['user'],
             password=DB_CONFIG['password'],
-            database=DB_CONFIG['database'],
+            database=DB_CONFIG['database_mysql'],
             connect_timeout=DB_CONFIG['connect_timeout']
         )
         logger.info("Database connection pool initialized successfully")

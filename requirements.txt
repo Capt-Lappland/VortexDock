@@ -2,3 +2,7 @@ requests==2.31.0
 flask==2.0.3
 mysql-connector-python==8.0.26
 cryptography==36.0.1
+
+# For curses support
+curses==2.2.1  # Linux/macOS
+windows-curses==2.2.1  # Windows
