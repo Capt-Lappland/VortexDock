@@ -76,12 +76,15 @@ python cli.py -pause <任务ID>
 python cli.py -rm <任务ID>
 ```
 ### 启动监控服务器
+监控服务器有两种形式，一种基于 Python ，另一种基于 PHP
 
+基于 Python 的监控服务器启动使用下列指令
 ```bash
+
 cd monitor_server
 python app.py # 默认开放在 localhost:9000
 ```
-
+启动基于 PHP 的监控服务器则将网站的根目录设置为 monitor_server_PHP
 ### 启动计算节点
 
 ```bash

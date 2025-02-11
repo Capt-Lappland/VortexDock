@@ -1,0 +1,173 @@
+/* monitor/css/styles.css */
+
+/* 基础布局样式 */
+.bg-light {
+    background-color: #f8f9fa !important;
+}
+
+.container.py-4 {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+/* 卡片通用样式 */
+.dashboard-card {
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    border: none;
+    background: white;
+    transition: transform 0.2s ease-in-out;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-2px);
+}
+
+.card-header.bg-white {
+    background-color: white !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    padding: 1.25rem 1.5rem;
+}
+
+.card-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #2196F3;
+}
+
+/* 进度条样式 */
+.progress {
+    height: 25px;
+    border-radius: 6px;
+    overflow: hidden;
+    background-color: #e9ecef;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.progress-bar {
+    transition: width 0.6s ease;
+    background: linear-gradient(45deg, #2196F3, #00BCD4);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* 统计卡片样式 */
+.stats-card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    text-align: center;
+    border-left: 4px solid #2196F3;
+}
+
+.stats-card:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.stats-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #2196F3;
+    margin-bottom: 0.5rem;
+}
+
+.stats-label {
+    color: #6c757d;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* 图表容器 */
+.chart-container {
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05);
+    height: 400px;
+    margin-bottom: 20px;
+    position: relative;
+}
+
+/* 响应式调整 */
+@media (max-width: 992px) {
+    .chart-container {
+        height: 350px;
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-card {
+        margin-bottom: 15px;
+    }
+    
+    .chart-container {
+        height: 300px;
+        padding: 15px;
+    }
+    
+    .card-header {
+        padding: 1rem;
+    }
+}
+
+/* 文字颜色辅助类 */
+.text-primary {
+    color: #2196F3 !important;
+}
+
+.text-info {
+    color: #17a2b8 !important;
+}
+
+.text-muted {
+    color: #6c757d !important;
+}
+
+/* 工具类 */
+.d-flex {
+    display: flex;
+}
+
+.justify-content-between {
+    justify-content: space-between;
+}
+
+.align-items-center {
+    align-items: center;
+}
+
+.mb-1 {
+    margin-bottom: 0.25rem;
+}
+
+.mb-3 {
+    margin-bottom: 1rem;
+}
+
+.mb-4 {
+    margin-bottom: 1.5rem;
+}
+
+.ms-2 {
+    margin-left: 0.5rem;
+}
+
+/* 图表提示样式调整 */
+.chartjs-tooltip {
+    background: rgba(0, 0, 0, 0.9) !important;
+    border-radius: 4px !important;
+    padding: 8px 12px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.chartjs-tooltip-key {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+}
