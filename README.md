@@ -1,9 +1,10 @@
+<pre>
  __     __         _            ____             _    
  \ \   / /__  _ __| |_ _____  _|  _ \  ___   ___| | __
   \ \ / / _ \| '__| __/ _ \ \/ / | | |/ _ \ / __| |/ /
    \ V / (_) | |  | ||  __/>  <| |_| | (_) | (__|   < 
     \_/ \___/|_|   \__\___/_/\_\____/ \___/ \___|_|\_\
-      
+</pre>   
 # VortexDock 分布式分子对接系统
 
 VortexDock 是一个基于 Python 的分布式分子对接计算系统，由分发服务器、监控服务器和计算节点三部分组成。系统支持多个计算节点同时运行，运用空闲算力进行计算，大大提高了虚拟筛选的效率。目前对接软件只支持 AutoDock Vina，后续会增加对其他分子对接软件的支持。
@@ -54,7 +55,7 @@ VortexDock 是一个基于 Python 的分布式分子对接计算系统，由分�
 
 ```bash
 cd distribution_server
-python server.py
+python server.py 
 ```
 
 ### 任务管理
@@ -73,6 +74,12 @@ python cli.py -pause <任务ID>
 
 # 删除任务
 python cli.py -rm <任务ID>
+```
+### 启动监控服务器
+
+```bash
+cd monitor_server
+python app.py # 默认开放在 localhost:9000
 ```
 
 ### 启动计算节点
