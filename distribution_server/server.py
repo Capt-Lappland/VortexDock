@@ -24,9 +24,21 @@ DEBUG = True
 # 任务超时时间（秒）
 TASK_TIMEOUT = 300
 
-# 初始化数据库连接池和表结构
-init_connection_pool()
-init_database()
+# 数据库连接状态
+db_initialized = False
+
+def init_db():
+    """初始化数据库连接池和表结构"""
+    global db_initialized
+    if not db_initialized:
+        try:
+            init_connection_pool()
+            init_database()
+            db_initialized = True
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise
 
 # 检查并重置超时任务
 def check_timeout_tasks():
@@ -109,7 +121,9 @@ def upload_result_file(task_id, filename):
 
 # TCP 命令服务器
 class TCPServer:
-    def __init__(self, host='0.0.0.0', port=None):
+    def __init__(self, host='0.0.0.0', port=None, init_db_connection=True):
+        if init_db_connection:
+            init_db()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.bind((host, port or SERVER_CONFIG['tcp_port']))
         self.sock.listen(5)

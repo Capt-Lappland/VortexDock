@@ -4,7 +4,6 @@ from mysql.connector import Error
 import sys
 sys.path.append('..')
 from config import DB_CONFIG
-
 def get_db_connection():
     """创建并返回数据库连接对象"""
     try:
@@ -12,7 +11,7 @@ def get_db_connection():
             host=DB_CONFIG['host'],
             user=DB_CONFIG['user'],
             password=DB_CONFIG['password'],
-            database=DB_CONFIG['database'],
+            database=DB_CONFIG['database_mysql'],
             auth_plugin='mysql_native_password'  # 根据MySQL版本可能需要
         )
         return conn

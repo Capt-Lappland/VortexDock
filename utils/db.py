@@ -14,21 +14,27 @@ logger = logging.getLogger('dock_server')
 # 全局数据库连接池
 connection_pool = None
 
-def init_connection_pool():
-    """初始化数据库连接池"""
+def init_connection_pool(config=None):
+    """初始化数据库连接池
+    
+    Args:
+        config (dict, optional): 数据库配置字典。如果未提供，将使用全局DB_CONFIG。
+    """
     global connection_pool
     try:
-        pool_name = DB_CONFIG.get('pool_name', 'mypool')  # 添加默认值
-        pool_size = DB_CONFIG.get('pool_size', 10)  # 添加默认值
+        # 使用传入的配置或全局配置
+        cfg = config if config is not None else DB_CONFIG
+        pool_name = cfg.get('pool_name', 'mypool')  # 添加默认值
+        pool_size = cfg.get('pool_size', 10)  # 添加默认值
         connection_pool = pooling.MySQLConnectionPool(
             pool_name=pool_name,
             pool_size=pool_size,
-            pool_reset_session=DB_CONFIG['pool_reset_session'],
-            host=DB_CONFIG['host'],
-            user=DB_CONFIG['user'],
-            password=DB_CONFIG['password'],
-            database=DB_CONFIG['database_mysql'],
-            connect_timeout=DB_CONFIG['connect_timeout']
+            pool_reset_session=cfg.get('pool_reset_session', True),
+            host=cfg.get('host', 'localhost'),
+            user=cfg.get('user', 'root'),
+            password=cfg.get('password', ''),
+            database=cfg.get('database_mysql', 'mysql'),
+            connect_timeout=cfg.get('connect_timeout', 10)
         )
         logger.info("Database connection pool initialized successfully")
     except Exception as e:
