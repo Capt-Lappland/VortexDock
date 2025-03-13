@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Wang
+    given-names: Runze
+    orcid: https://orcid.org/0009-0000-0204-9906
+title: "VortexDock"
+version: 0.0.1
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.15019935
+date-released: 2025-03-13
