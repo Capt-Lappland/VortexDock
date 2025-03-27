@@ -1,5 +1,5 @@
 requests==2.31.0
 flask==2.0.3
 werkzeug<2.1.0
-mysql-connector-python==8.0.26
+mysql-connector-python==9.1.0
 cryptography==36.0.1
