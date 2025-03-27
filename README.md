@@ -68,6 +68,24 @@ python cli.py -ls
 # Create a new task
 python cli.py -zip <task_file.zip> -name <task_name>
 
+task_name.zip
+├── receptor.pdbqt
+├── parameter.txt
+│   ├── center_x = 233.7
+│   ├── center_y = 155.8
+│   ├── center_z = 127.7
+│   ├── size_x = 35.7
+│   ├── size_y = 41.2
+│   ├── size_z = 45.2
+│   ├── num_modes = 9
+│   ├── energy_range = 9
+│   └── cpu = 8
+└── ligands
+    ├── 001.pdbqt
+    ├── 002.pdbqt
+    ├── 003.pdbqt
+    └── ...
+
 # Pause/Resume a task
 python cli.py -pause <task_id>
 
