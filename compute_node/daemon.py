@@ -16,48 +16,48 @@ from utils.network import SSLContextManager, SecureSocket
 
 class ProcessManager:
     def __init__(self):
-        # 进程配置
+        # Process configuration
         self.max_processes = PROCESS_CONFIG['max_processes']
         self.process_start_interval = PROCESS_CONFIG['process_start_interval']
         self.min_memory_per_process = PROCESS_CONFIG['min_memory_per_process']
         self.max_cpu_per_process = PROCESS_CONFIG['max_cpu_per_process']
         
-        # 服务器配置
+        # Server configuration
         self.server_host = SERVER_CONFIG['host']
         self.tcp_port = SERVER_CONFIG['tcp_port']
         self.server_password = SERVER_CONFIG['password']
         
-        # 心跳配置
+        # Heartbeat configuration
         self.heartbeat_interval = TASK_CONFIG['heartbeat_interval']
         self.retry_delay = TASK_CONFIG['retry_delay']
         self.max_retries = TASK_CONFIG['max_retries']
         
-        # 进程管理
+        # Process management
         self.processes = {}
         self.process_outputs = {}
         self.process_lock = threading.Lock()
         
-        # 网络连接
+        # Network connection
         self.ssl_context = SSLContextManager().get_client_context()
         self.secure_sock = None
         self.sock_lock = threading.Lock()
         
-        # 初始化curses
+        # Initialize curses
         self.screen = curses.initscr()
         curses.start_color()
-        curses.use_default_colors()  # 使用终端默认颜色
-        curses.init_pair(1, curses.COLOR_GREEN, -1)  # -1表示使用默认背景色
+        curses.use_default_colors()  # Use terminal default colors
+        curses.init_pair(1, curses.COLOR_GREEN, -1)  # -1 means use default background color
         curses.init_pair(2, curses.COLOR_RED, -1)
         curses.init_pair(3, curses.COLOR_YELLOW, -1)
         curses.noecho()
         curses.cbreak()
-        curses.curs_set(0)  # 隐藏光标
+        curses.curs_set(0)  # Hide cursor
         self.screen.keypad(True)
         
-        # 获取屏幕尺寸
+        # Get screen size
         self.height, self.width = self.screen.getmaxyx()
         
-        # 创建窗口
+        # Create windows
         self.daemon_window = curses.newwin(5, self.width, 0, 0)
         self.process_windows = {}
         process_height = (self.height - 5) // 5
@@ -70,7 +70,7 @@ class ProcessManager:
             )
     
     def start_process(self, process_id):
-        """启动一个新的client.py进程"""
+        """Start a new client.py process"""
         try:
             process = subprocess.Popen(
                 [sys.executable, 'client.py'],
@@ -84,7 +84,7 @@ class ProcessManager:
                 self.processes[process_id] = process
                 self.process_outputs[process_id] = []
             
-            # 启动输出监控线程
+            # Start output monitoring thread
             threading.Thread(
                 target=self.monitor_process_output,
                 args=(process_id,),
@@ -98,7 +98,7 @@ class ProcessManager:
             return False
     
     def monitor_process_output(self, process_id):
-        """监控进程输出并更新显示"""
+        """Monitor process output and update display"""
         process = self.processes[process_id]
         while True:
             output = process.stdout.readline()
@@ -107,27 +107,27 @@ class ProcessManager:
             if output:
                 with self.process_lock:
                     self.process_outputs[process_id].append(output.strip())
-                    # 保持最新的100行输出
+                    # Keep the latest 100 lines of output
                     if len(self.process_outputs[process_id]) > 100:
                         self.process_outputs[process_id].pop(0)
     
     def update_daemon_status(self):
-        """更新守护进程状态显示"""
+        """Update daemon status display"""
         self.daemon_window.clear()
         self.daemon_window.box()
-        self.daemon_window.addstr(0, 2, " 守护进程状态 ")
+        self.daemon_window.addstr(0, 2, " Daemon Status ")
         
-        # 显示系统资源使用情况
+        # Display system resource usage
         cpu_percent = psutil.cpu_percent()
         mem = psutil.virtual_memory()
-        self.daemon_window.addstr(1, 2, f"CPU使用率: {cpu_percent}%")
-        self.daemon_window.addstr(2, 2, f"内存使用: {mem.percent}%")
-        self.daemon_window.addstr(3, 2, f"运行进程数: {len(self.processes)}")
+        self.daemon_window.addstr(1, 2, f"CPU Usage: {cpu_percent}%")
+        self.daemon_window.addstr(2, 2, f"Memory Usage: {mem.percent}%")
+        self.daemon_window.addstr(3, 2, f"Running Processes: {len(self.processes)}")
         
         self.daemon_window.refresh()
     
     def update_process_status(self):
-        """更新所有进程状态显示"""
+        """Update all process status display"""
         with self.process_lock:
             for process_id, window in self.process_windows.items():
                 window.clear()
@@ -135,11 +135,11 @@ class ProcessManager:
                 
                 process = self.processes.get(process_id)
                 if process:
-                    status = "运行中" if process.poll() is None else "已停止"
-                    color = curses.color_pair(1) if status == "运行中" else curses.color_pair(2)
-                    window.addstr(0, 2, f" 进程 {process_id} (PID: {process.pid}) - {status} ", color)
+                    status = "Running" if process.poll() is None else "Stopped"
+                    color = curses.color_pair(1) if status == "Running" else curses.color_pair(2)
+                    window.addstr(0, 2, f" Process {process_id} (PID: {process.pid}) - {status} ", color)
                     
-                    # 显示进程输出
+                    # Display process output
                     outputs = self.process_outputs.get(process_id, [])
                     max_lines = window.getmaxyx()[0] - 2
                     for i, line in enumerate(outputs[-max_lines:]):
@@ -148,12 +148,12 @@ class ProcessManager:
                         except curses.error:
                             pass
                 else:
-                    window.addstr(0, 2, f" 进程 {process_id} - 未启动 ", curses.color_pair(3))
+                    window.addstr(0, 2, f" Process {process_id} - Not Started ", curses.color_pair(3))
                 
                 window.refresh()
     
     def check_and_restart_processes(self):
-        """检查进程状态并在需要时重启"""
+        """Check process status and restart if needed"""
         with self.process_lock:
             for process_id, process in list(self.processes.items()):
                 if process.poll() is not None:
@@ -161,7 +161,7 @@ class ProcessManager:
                     self.start_process(process_id)
     
     def connect_tcp(self):
-        """连接到 TCP 命令服务器，支持自动重连"""
+        """Connect to TCP command server, support auto-reconnect"""
         logger.info("Attempting to connect to TCP server")
         retries = 0
         while retries < self.max_retries:
@@ -173,31 +173,31 @@ class ProcessManager:
                     except Exception as e:
                         logger.debug(f"Error closing existing secure socket: {e}")
                 
-                # 创建新的套接字并建立TLS连接
+                # Create new socket and establish TLS connection
                 raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                raw_sock.settimeout(10)  # 设置连接超时时间
+                raw_sock.settimeout(10)  # Set connection timeout
                 raw_sock.connect((self.server_host, self.tcp_port))
                 self.secure_sock = SecureSocket(raw_sock, self.ssl_context)
                 
-                # 发送认证信息
+                # Send authentication information
                 auth_data = {
                     'type': 'auth',
                     'password': self.server_password
                 }
                 self.secure_sock.send_message(auth_data)
                 
-                # 等待认证结果
+                # Wait for authentication result
                 response = self.secure_sock.receive_message()
                 if not response or response.get('status') != 'ok':
                     logger.error("Authentication failed")
                     self.secure_sock.close()
                     retries += 1
                     if retries < self.max_retries:
-                        time.sleep(min(self.retry_delay * (retries + 1), 30))  # 使用指数退避策略
+                        time.sleep(min(self.retry_delay * (retries + 1), 30))  # Use exponential backoff strategy
                     continue
                 
                 logger.info("Successfully connected and authenticated to TCP server")
-                # 发送初始心跳包
+                # Send initial heartbeat
                 cpu_usage = psutil.cpu_percent(interval=1)
                 self.secure_sock.send_message({
                     'type': 'heartbeat',
@@ -209,10 +209,10 @@ class ProcessManager:
                     self.secure_sock.close()
                     retries += 1
                     if retries < self.max_retries:
-                        time.sleep(min(self.retry_delay * (retries + 1), 30))  # 使用指数退避策略
+                        time.sleep(min(self.retry_delay * (retries + 1), 30))  # Use exponential backoff strategy
                     continue
                 
-                # 启动心跳线程
+                # Start heartbeat thread
                 self._start_heartbeat_thread()
                 return True
             except Exception as e:
@@ -221,19 +221,19 @@ class ProcessManager:
                 if self.secure_sock:
                     self.secure_sock.close()
                 if retries < self.max_retries:
-                    time.sleep(min(self.retry_delay * (retries + 1), 30))  # 使用指数退避策略
+                    time.sleep(min(self.retry_delay * (retries + 1), 30))  # Use exponential backoff strategy
         
         logger.error("Failed to connect to TCP server after maximum retries")
         return False
 
     def _start_heartbeat_thread(self):
-        """启动心跳线程，定期发送心跳包和性能数据"""
+        """Start heartbeat thread, periodically send heartbeat and performance data"""
         def heartbeat_worker():
             consecutive_failures = 0
             max_failures = 3
             while True:
                 try:
-                    # 检查连接状态
+                    # Check connection status
                     if not self.secure_sock:
                         logger.warning("No active connection, attempting to reconnect...")
                         if not self.connect_tcp():
@@ -244,10 +244,10 @@ class ProcessManager:
                                 consecutive_failures = 0
                             continue
                     
-                    # 获取系统性能数据
+                    # Get system performance data
                     cpu_usage = psutil.cpu_percent(interval=1)
                     memory = psutil.virtual_memory()
-                    # 发送心跳包
+                    # Send heartbeat
                     with self.sock_lock:
                         try:
                             self.secure_sock.send_message({
@@ -258,10 +258,10 @@ class ProcessManager:
                             response = self.secure_sock.receive_message()
                             if not response or response.get('status') != 'ok':
                                 raise ConnectionError("Invalid heartbeat response")
-                            consecutive_failures = 0  # 重置失败计数
+                            consecutive_failures = 0  # Reset failure count
                         except Exception as e:
                             logger.warning(f"Heartbeat failed: {e}, attempting to reconnect...")
-                            self.secure_sock = None  # 标记连接为无效
+                            self.secure_sock = None  # Mark connection as invalid
                             consecutive_failures += 1
                             if consecutive_failures >= max_failures:
                                 logger.error("Maximum reconnection attempts reached")
@@ -273,50 +273,50 @@ class ProcessManager:
                 finally:
                     time.sleep(self.heartbeat_interval)
         
-        # 创建并启动心跳线程
+        # Create and start heartbeat thread
         heartbeat_thread = threading.Thread(target=heartbeat_worker)
         heartbeat_thread.daemon = True
         heartbeat_thread.start()
         logger.info("Heartbeat thread started")
 
     def run(self):
-        """运行守护进程主循环"""
+        """Run daemon main loop"""
         try:
-            # 建立与服务器的连接
+            # Establish connection to server
             if not self.connect_tcp():
                 logger.error("Failed to connect to server")
                 return
-            # 启动初始进程
+            # Start initial processes
             for i in range(min(5, self.max_processes)):
                 if self.start_process(i):
                     time.sleep(self.process_start_interval)
             
-            # 主循环
+            # Main loop
             while True:
                 try:
-                    # 批量更新窗口，减少闪烁
+                    # Batch update windows to reduce flicker
                     curses.update_lines_cols()
                     self.update_daemon_status()
                     self.update_process_status()
                     self.check_and_restart_processes()
-                    curses.doupdate()  # 一次性刷新所有窗口
-                    time.sleep(1)  # 使用单一的延迟时间
+                    curses.doupdate()  # Refresh all windows at once
+                    time.sleep(1)  # Use a single delay time
                 except curses.error as e:
                     logger.error(f"Curses error in main loop: {e}")
                 except Exception as e:
                     logger.error(f"Unexpected error in main loop: {e}")
-                    time.sleep(1)  # 发生错误时也保持延迟
+                    time.sleep(1)  # Maintain delay even when an error occurs
                 
         except KeyboardInterrupt:
             pass
         finally:
-            # 清理并恢复终端状态
+            # Clean up and restore terminal state
             curses.nocbreak()
             self.screen.keypad(False)
             curses.echo()
             curses.endwin()
             
-            # 终止所有子进程
+            # Terminate all child processes
             for process in self.processes.values():
                 try:
                     process.terminate()
