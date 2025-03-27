@@ -8,54 +8,54 @@ def prompt_for_config(config_name, default_value):
 def configure():
     config = {}
 
-    # 数据库配置
-    print("VortexDock 数据库配置:")
+    # Database configuration
+    print("VortexDock Database Configuration:")
     config['DB_CONFIG'] = {
-        'host': prompt_for_config('VortexDock 数据库主机', 'localhost'),
-        'user': prompt_for_config('VortexDock 数据库用户', 'vortexdock'),
-        'password': prompt_for_config('VortexDock 数据库密码', 'password'),
-        'database': prompt_for_config('VortexDock 数据库名称', 'vortexdock'),
-        'pool_name': prompt_for_config('连接池名称', 'mypool'),
-        'pool_size': int(prompt_for_config('连接池大小', 20)),
-        'pool_reset_session': prompt_for_config('重置会话状态', 'True') == 'True',
-        'connect_timeout': int(prompt_for_config('连接超时时间（秒）', 10))
+        'host': prompt_for_config('VortexDock Database Host', 'localhost'),
+        'user': prompt_for_config('VortexDock Database User', 'vortexdock'),
+        'password': prompt_for_config('VortexDock Database Password', 'password'),
+        'database': prompt_for_config('VortexDock Database Name', 'vortexdock'),
+        'pool_name': prompt_for_config('Connection Pool Name', 'mypool'),
+        'pool_size': int(prompt_for_config('Connection Pool Size', 20)),
+        'pool_reset_session': prompt_for_config('Reset Session State', 'True') == 'True',
+        'connect_timeout': int(prompt_for_config('Connection Timeout (seconds)', 10))
     }
 
-    # 服务器配置
-    print("\nVortexDock 分发服务器配置:")
+    # Server configuration
+    print("\nVortexDock Server Configuration:")
     config['SERVER_CONFIG'] = {
-        'host': prompt_for_config('VortexDock 分发服务器主机', 'localhost'),
-        'http_port': int(prompt_for_config('VortexDock 文件传输服务端口', 9000)),
-        'tcp_port': int(prompt_for_config('VortexDock 命令服务端口', 10020)),
-        'password': prompt_for_config('VortexDock 分发服务器密码', 'your_server_password')
+        'host': prompt_for_config('VortexDock Server Host', 'localhost'),
+        'http_port': int(prompt_for_config('VortexDock File Transfer Service Port', 9000)),
+        'tcp_port': int(prompt_for_config('VortexDock Command Service Port', 10020)),
+        'password': prompt_for_config('VortexDock Server Password', 'your_server_password')
     }
 
-    # 任务配置
-    print("\n计算节点配置:")
+    # Task configuration
+    print("\nTask Configuration:")
     config['TASK_CONFIG'] = {
-        'max_retries': int(prompt_for_config('最大重试次数', 5)),
-        'retry_delay': int(prompt_for_config('重试延迟（秒）', 5)),
-        'task_timeout': int(prompt_for_config('任务超时时间（秒）', 3600)),
-        'cleanup_interval': int(prompt_for_config('清理间隔（秒）', 3600)),
-        'cleanup_age': int(prompt_for_config('清理阈值（秒）', 86400)),
-        'heartbeat_interval': int(prompt_for_config('心跳间隔（秒）', 30)),
-        'heartbeat_retry_delay': int(prompt_for_config('心跳重试延迟（秒）', 5))
+        'max_retries': int(prompt_for_config('Maximum Retries', 5)),
+        'retry_delay': int(prompt_for_config('Retry Delay (seconds)', 5)),
+        'task_timeout': int(prompt_for_config('Task Timeout (seconds)', 3600)),
+        'cleanup_interval': int(prompt_for_config('Cleanup Interval (seconds)', 3600)),
+        'cleanup_age': int(prompt_for_config('Cleanup Threshold (seconds)', 86400)),
+        'heartbeat_interval': int(prompt_for_config('Heartbeat Interval (seconds)', 30)),
+        'heartbeat_retry_delay': int(prompt_for_config('Heartbeat retry delay (seconds)', 5))
     }
 
-    # 守护进程配置
-    print("\n守护进程配置:")
+    # Process configuration
+    print("\nProcess Configuration:")
     config['PROCESS_CONFIG'] = {
-        'max_processes': int(prompt_for_config('最大进程数', 2)),
-        'process_start_interval': int(prompt_for_config('进程启动间隔（秒）', 5)),
-        'min_memory_per_process': int(prompt_for_config('每个进程的最小内存（MB）', 100)),
-        'max_cpu_per_process': int(prompt_for_config('每个进程的最大CPU数', 1))
+        'max_processes': int(prompt_for_config('Maximum number of processes', 2)),
+        'process_start_interval': int(prompt_for_config('Process start interval (seconds)', 5)),
+        'min_memory_per_process': int(prompt_for_config('Minimum memory per process (MB)', 100)),
+        'max_cpu_per_process': int(prompt_for_config('Maximum CPU per process', 1))
     }
 
-    # 调试配置
-    print("\n调试配置:")
-    config['DEBUG'] = prompt_for_config('调试模式', 'False') == 'True'
+    # Debug configuration
+    print("\nDebug Configuration:")
+    config['DEBUG'] = prompt_for_config('Debug mode', 'False') == 'True'
 
-    # 将配置写入 config.py 文件
+    # Write configuration to config.py file
     with open('config.py', 'w', encoding='utf-8') as config_file:
         config_file.write("# -*- coding: utf-8 -*-\n\n")
         config_file.write("DB_CONFIG = " + json.dumps(config['DB_CONFIG'], indent=4, ensure_ascii=False) + "\n\n")
@@ -64,7 +64,7 @@ def configure():
         config_file.write("PROCESS_CONFIG = " + json.dumps(config['PROCESS_CONFIG'], indent=4, ensure_ascii=False) + "\n\n")
         config_file.write("DEBUG = " + str(config['DEBUG']) + "\n")
 
-    print("\n配置已保存到 config.py 文件中")
+    print("\nConfiguration has been saved to config.py file")
 
 if __name__ == '__main__':
     print(r"""
