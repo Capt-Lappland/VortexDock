@@ -20,7 +20,7 @@ class SSLContextManager:
         self.key_path = self.cert_dir / 'server.key'
     
     def create_self_signed_cert(self):
-        """创建自签名证书"""
+        """Create a self-signed certificate"""
         if not self.cert_path.exists() or not self.key_path.exists():
             from cryptography import x509
             from cryptography.x509.oid import NameOID
@@ -29,13 +29,13 @@ class SSLContextManager:
             from cryptography.hazmat.primitives import serialization
             import datetime
             
-            # 生成私钥
+            # Generate private key
             private_key = rsa.generate_private_key(
                 public_exponent=65537,
                 key_size=2048
             )
             
-            # 创建证书
+            # Create certificate
             subject = issuer = x509.Name([
                 x509.NameAttribute(NameOID.COMMON_NAME, u"VortexDock")
             ])
@@ -54,7 +54,7 @@ class SSLContextManager:
                 datetime.datetime.utcnow() + datetime.timedelta(days=365)
             ).sign(private_key, hashes.SHA256())
             
-            # 保存证书和私钥
+            # Save certificate and private key
             with open(self.cert_path, 'wb') as f:
                 f.write(cert.public_bytes(serialization.Encoding.PEM))
             
@@ -66,7 +66,7 @@ class SSLContextManager:
                 ))
     
     def get_server_context(self) -> ssl.SSLContext:
-        """获取服务器SSL上下文"""
+        """Get server SSL context"""
         self.create_self_signed_cert()
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(certfile=str(self.cert_path), keyfile=str(self.key_path))
@@ -76,12 +76,12 @@ class SSLContextManager:
         return context
     
     def get_client_context(self) -> ssl.SSLContext:
-        """获取客户端SSL上下文"""
+        """Get client SSL context"""
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         if self.cert_path.exists():
             context.load_verify_locations(str(self.cert_path))
         context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE  # 开发环境使用自签名证书
+        context.verify_mode = ssl.CERT_NONE  # Use self-signed certificate in development environment
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.maximum_version = ssl.TLSVersion.TLSv1_3
         context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256')
@@ -95,7 +95,7 @@ class ConnectionPool:
         self.active_connections = set()
     
     def get_connection(self, create_func) -> socket.socket:
-        """获取一个连接，如果没有可用连接则创建新的"""
+        """Get a connection, create a new one if no available connection exists"""
         try:
             conn = self.pool.get_nowait()
             if self._is_connection_valid(conn):
@@ -109,10 +109,10 @@ class ConnectionPool:
                 conn = create_func()
                 self.active_connections.add(conn)
                 return conn
-            raise ConnectionError("连接池已满")
+            raise ConnectionError("Connection pool is full")
     
     def return_connection(self, conn: socket.socket):
-        """归还连接到连接池"""
+        """Return a connection to the connection pool"""
         if conn in self.active_connections:
             try:
                 self.pool.put_nowait(conn)
@@ -120,9 +120,9 @@ class ConnectionPool:
                 self._close_connection(conn)
     
     def _is_connection_valid(self, conn: socket.socket) -> bool:
-        """检查连接是否有效"""
+        """Check if the connection is valid"""
         try:
-            # 发送心跳检测
+            # Send heartbeat check
             conn.send(json.dumps({'type': 'heartbeat'}).encode())
             response = conn.recv(1024)
             return bool(response)
@@ -130,7 +130,7 @@ class ConnectionPool:
             return False
     
     def _close_connection(self, conn: socket.socket):
-        """关闭连接"""
+        """Close the connection"""
         try:
             conn.close()
         except:
@@ -138,7 +138,7 @@ class ConnectionPool:
         self.active_connections.discard(conn)
     
     def close_all(self):
-        """关闭所有连接"""
+        """Close all connections"""
         with self.lock:
             while not self.pool.empty():
                 try:
@@ -152,7 +152,7 @@ class ConnectionPool:
 
 class SecureSocket:
     def __init__(self, sock: socket.socket, ssl_context: ssl.SSLContext):
-        # 根据SSL上下文类型选择正确的包装方式
+        # Choose the correct wrapping method based on the SSL context type
         if ssl_context.protocol == ssl.PROTOCOL_TLS_SERVER:
             self.sock = ssl_context.wrap_socket(sock, server_side=True)
         else:
@@ -161,9 +161,9 @@ class SecureSocket:
         self._send_buffer = b''
     
     def send_message(self, data: Dict[str, Any]):
-        """发送消息，自动处理编码和分包"""
+        """Send a message, automatically handle encoding and fragmentation"""
         try:
-            # 确保所有字符串值都是UTF-8编码
+            # Ensure all string values are UTF-8 encoded
             def encode_strings(obj):
                 if isinstance(obj, str):
                     return obj.encode('utf-8', errors='strict').decode('utf-8')
@@ -179,43 +179,43 @@ class SecureSocket:
             header = length.to_bytes(4, byteorder='big')
             self.sock.sendall(header + message)
         except UnicodeEncodeError as e:
-            logger.error(f"编码错误: {e}")
+            logger.error(f"Encoding error: {e}")
             raise
         except Exception as e:
-            logger.error(f"发送消息错误: {e}")
+            logger.error(f"Error sending message: {e}")
             raise
     
     def receive_message(self) -> Optional[Dict[str, Any]]:
-        """接收消息，自动处理解码和分包"""
+        """Receive a message, automatically handle decoding and fragmentation"""
         try:
-            # 读取消息长度
+            # Read the message length
             header = self._recv_exactly(4)
             if not header:
                 return None
             length = int.from_bytes(header, byteorder='big')
             
-            # 读取消息内容
+            # Read the message content
             message = self._recv_exactly(length)
             if not message:
                 return None
             
             try:
-                # 先尝试直接解码
+                # Try decoding directly
                 decoded_message = message.decode('utf-8', errors='strict')
             except UnicodeDecodeError:
-                # 如果失败，尝试使用latin1编码（保留原始字节）
+                # If it fails, try using latin1 encoding (preserve raw bytes)
                 decoded_message = message.decode('latin1')
             
             return json.loads(decoded_message)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON解码错误: {e}")
+            logger.error(f"JSON decoding error: {e}")
             raise
         except Exception as e:
-            logger.error(f"接收消息错误: {e}")
+            logger.error(f"Error receiving message: {e}")
             raise
     
     def _recv_exactly(self, n: int) -> Optional[bytes]:
-        """精确接收指定字节数的数据"""
+        """Receive exactly the specified number of bytes"""
         while len(self._recv_buffer) < n:
             chunk = self.sock.recv(4096)
             if not chunk:
@@ -227,7 +227,7 @@ class SecureSocket:
         return result
     
     def close(self):
-        """关闭连接"""
+        """Close the connection"""
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
         except:

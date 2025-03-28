@@ -2,7 +2,7 @@
 // includes/data_functions.php
 
 /**
- * 获取所有任务进度数据
+ * Retrieve all task progress data
  */
 function getTasksProgress($conn) {
     $data = [];
@@ -14,16 +14,16 @@ function getTasksProgress($conn) {
             $total = $conn->query("SELECT COUNT(*) as count FROM task_{$task_id}_ligands")->fetch_assoc()['count'];
             $completed = $conn->query("SELECT COUNT(*) as count FROM task_{$task_id}_ligands WHERE status = 'completed'")->fetch_assoc()['count'];
             
-            // 处理进度计算
+            // Calculate progress
             $progress = $total > 0 ? round(($completed / $total) * 100, 2) : 0;
             
-            // 计算处理速度
+            // Calculate processing speed
             $recent_completed = $conn->query("SELECT COUNT(*) as count FROM task_{$task_id}_ligands 
                                             WHERE status = 'completed' 
                                             AND last_updated >= NOW() - INTERVAL 5 MINUTE")->fetch_assoc()['count'];
-            $speed = $recent_completed / 5; // 每分钟处理数量
+            $speed = $recent_completed / 5; // Number processed per minute
             
-            // 预估剩余时间
+            // Estimate remaining time
             $remaining = $total - $completed;
             $estimated_minutes = $speed > 0 ? ceil($remaining / $speed) : null;
             $estimated_time = formatEstimatedTime($estimated_minutes);
@@ -43,7 +43,7 @@ function getTasksProgress($conn) {
 }
 
 /**
- * 获取节点性能数据
+ * Retrieve node performance data
  */
 function getNodePerformance($conn) {
     $data = ['daily' => [], 'hourly' => [], 'minute' => []];
@@ -76,7 +76,7 @@ function getNodePerformance($conn) {
                               GROUP BY FLOOR(UNIX_TIMESTAMP(last_updated) / 300)";
         }
         
-        // 合并查询每日数据
+        // Merge daily data queries
         if (!empty($daily_query)) {
             $daily_union = implode(' UNION ALL ', $daily_query);
             $result = $conn->query("SELECT date, SUM(task_completed) as completed_tasks 
@@ -86,7 +86,7 @@ function getNodePerformance($conn) {
             $data['daily'] = $result->fetch_all(MYSQLI_ASSOC);
         }
         
-        // 合并查询每小时数据
+        // Merge hourly data queries
         if (!empty($hourly_query)) {
             $hourly_union = implode(' UNION ALL ', $hourly_query);
             $result = $conn->query("SELECT hour, SUM(task_completed) as completed_tasks 
@@ -96,7 +96,7 @@ function getNodePerformance($conn) {
             $data['hourly'] = $result->fetch_all(MYSQLI_ASSOC);
         }
         
-        // 合并查询每分钟数据
+        // Merge minute data queries
         if (!empty($minute_query)) {
             $minute_union = implode(' UNION ALL ', $minute_query);
             $result = $conn->query("SELECT minute, SUM(task_completed) as completed_tasks 
@@ -110,25 +110,25 @@ function getNodePerformance($conn) {
 }
 
 /**
- * 获取节点状态统计
+ * Retrieve node status statistics
  */
 function getNodeStats($conn) {
     $stats = ['total' => 0, 'online' => 0, 'offline' => 0, 'avg_cpu_usage' => 0];
     
-    // 在线节点数（最近5分钟有心跳）
+    // Online nodes (heartbeat within the last 5 minutes)
     $result = $conn->query("SELECT COUNT(DISTINCT client_addr) as online_count 
                           FROM node_heartbeats 
                           WHERE last_heartbeat >= NOW() - INTERVAL 5 MINUTE");
     if ($result) $stats['online'] = (int)$result->fetch_assoc()['online_count'];
     
-    // 总节点数
+    // Total nodes
     $result = $conn->query("SELECT COUNT(DISTINCT client_addr) as total_count FROM node_heartbeats");
     if ($result) {
         $stats['total'] = (int)$result->fetch_assoc()['total_count'];
         $stats['offline'] = $stats['total'] - $stats['online'];
     }
     
-    // 平均CPU使用率
+    // Average CPU usage
     $result = $conn->query("SELECT AVG(cpu_usage) as avg_cpu 
                           FROM node_heartbeats 
                           WHERE last_heartbeat >= NOW() - INTERVAL 5 MINUTE");
@@ -141,7 +141,7 @@ function getNodeStats($conn) {
 }
 
 /**
- * 获取任务队列状态分布
+ * Retrieve task queue status distribution
  */
 function getTaskQueueStats($conn) {
     $stats = ['pending' => 0, 'processing' => 0, 'completed' => 0, 'failed' => 0];
@@ -168,7 +168,7 @@ function getTaskQueueStats($conn) {
 }
 
 /**
- * 获取任务性能指标
+ * Retrieve task performance metrics
  */
 function getTaskPerformanceStats($conn) {
     $stats = ['avg_processing_time' => 0, 'success_rate' => 0, 'throughput' => []];
@@ -194,7 +194,7 @@ function getTaskPerformanceStats($conn) {
                                     GROUP BY time_slot";
         }
         
-        // 计算平均处理时间
+        // Calculate average processing time
         if (!empty($avg_time_queries)) {
             $query = "SELECT AVG(process_time) as avg_time 
                      FROM (".implode(" UNION ALL ", $avg_time_queries).") as tasks 
@@ -203,7 +203,7 @@ function getTaskPerformanceStats($conn) {
             if ($result) $stats['avg_processing_time'] = round($result->fetch_assoc()['avg_time'] ?? 0, 1);
         }
         
-        // 计算成功率
+        // Calculate success rate
         if (!empty($success_rate_queries)) {
             $query = "SELECT 
                      COUNT(CASE WHEN status = 'completed' THEN 1 END) * 100.0 / 
@@ -213,7 +213,7 @@ function getTaskPerformanceStats($conn) {
             if ($result) $stats['success_rate'] = round($result->fetch_assoc()['success_rate'] ?? 0, 1);
         }
         
-        // 计算吞吐量
+        // Calculate throughput
         if (!empty($throughput_queries)) {
             $query = "SELECT 
                      DATE_FORMAT(DATE_SUB(time_slot, INTERVAL MINUTE(time_slot) % 30 MINUTE), 
@@ -231,22 +231,22 @@ function getTaskPerformanceStats($conn) {
 }
 
 /**
- * 格式化预估时间（内部辅助函数）
+ * Format estimated time (internal helper function)
  */
 function formatEstimatedTime($minutes) {
     if (!$minutes) return null;
     $hours = floor($minutes / 60);
     $minutes = $minutes % 60;
-    return ($hours > 0 ? $hours.'小时' : '').($minutes > 0 ? $minutes.'分钟' : '');
+    return ($hours > 0 ? $hours.' hours' : '').($minutes > 0 ? $minutes.' minutes' : '');
 }
 
 /**
- * 获取节点CPU使用率趋势
+ * Retrieve node CPU usage trend
  */
 function getNodeCpuTrend($conn) {
     $data = [];
     
-    // 获取最近一小时内的所有节点CPU使用率数据
+    // Retrieve CPU usage data for all nodes within the last hour
     $result = $conn->query("SELECT 
                             client_addr,
                             DATE_FORMAT(last_heartbeat, '%Y-%m-%d %H:%i') as minute,
@@ -261,7 +261,7 @@ function getNodeCpuTrend($conn) {
             $nodeData[$row['client_addr']][$row['minute']] = $row['cpu_usage'];
         }
         
-        // 为每个节点整理数据
+        // Organize data for each node
         foreach ($nodeData as $node => $points) {
             $data[] = [
                 'node' => $node,

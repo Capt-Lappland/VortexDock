@@ -11,7 +11,7 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
-    # 创建主任务表
+    # Create main task table
     c.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id VARCHAR(255) PRIMARY KEY,
@@ -37,21 +37,21 @@ def list_tasks():
     tasks = execute_query('SELECT id, status, created_at FROM tasks')
     
     if not tasks:
-        print("没有找到任务")
+        print("No tasks found")
     else:
-        print("任务列表:")
-        print("ID\t状态\t进度\t\t速度(个/分钟)\t创建时间")
+        print("Task List:")
+        print("ID\tStatus\tProgress\t\tSpeed (items/min)\tCreated At")
         for task in tasks:
             task_id = task['id']
-            # 获取该任务的配体总数和已完成数
+            # Get the total number of ligands and completed ligands for the task
             total = execute_query(f'SELECT COUNT(*) as count FROM task_{task_id}_ligands', fetch_one=True)['count']
             completed = execute_query(f'SELECT COUNT(*) as count FROM task_{task_id}_ligands WHERE status = "completed"', fetch_one=True)['count']
             
-            # 计算进度百分比
+            # Calculate progress percentage
             progress = completed / total if total > 0 else 0
             progress_bar = create_progress_bar(progress)
             
-            # 计算最近5分钟的处理速度
+            # Calculate processing speed in the last 5 minutes
             recent_completed = execute_query(f'''
                 SELECT COUNT(*) as count
                 FROM task_{task_id}_ligands 
@@ -63,6 +63,7 @@ def list_tasks():
             print(f"{task_id}\t{task['status']}\t{progress_bar}\t{speed:.1f}\t\t{task['created_at']}")
 
 def create_progress_bar(progress, width=20):
+    # Generate a progress bar string
     filled = int(width * progress)
     empty = width - filled
     bar = '=' * filled + '>' + ' ' * empty if filled < width else '=' * width
@@ -71,14 +72,14 @@ def create_progress_bar(progress, width=20):
 
 def create_task(zip_path, name):
     if not os.path.exists(zip_path):
-        print(f"错误：找不到文件 {zip_path}")
+        print(f"Error: File {zip_path} not found")
         return
     
     if execute_query('SELECT id FROM tasks WHERE id = %s', (name,), fetch_one=True):
-        print(f"错误：任务名称 '{name}' 已存在，请使用不同的名称。")
+        print(f"Error: Task name '{name}' already exists, please use a different name.")
         return
     
-    # 创建临时目录解压文件
+    # Create temporary directory to extract files
     temp_dir = Path('temp_extract')
     temp_dir.mkdir(exist_ok=True)
     
@@ -86,20 +87,20 @@ def create_task(zip_path, name):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
         
-        # 验证必要文件
+        # Validate required files
         receptor_file = next(temp_dir.glob('**/receptor.pdbqt'), None)
         parameter_file = next(temp_dir.glob('**/parameter.txt'), None)
         ligand_files = list(temp_dir.glob('**/ligands/*.pdbqt'))
         
         if not (receptor_file and parameter_file and ligand_files):
-            print("错误：ZIP文件缺少必要的文件（receptor.pdbqt、parameter.txt、ligands/ligand_*.pdbqt）")
+            print("Error: ZIP file is missing required files (receptor.pdbqt, parameter.txt, ligands/ligand_*.pdbqt)")
             return
         
-        # 将文件移动到任务目录
+        # Move files to task directory
         task_dir = Path('tasks') / name
         task_dir.mkdir(parents=True, exist_ok=True)
         
-        # 创建 ligands 子目录
+        # Create ligands subdirectory
         ligands_dir = task_dir / 'ligands'
         ligands_dir.mkdir(exist_ok=True)
         
@@ -109,11 +110,11 @@ def create_task(zip_path, name):
         receptor_file.rename(receptor_dest)
         parameter_file.rename(parameter_dest)
         
-        # 创建数据库记录
+        # Create database records
         conn = get_db_connection()
         c = conn.cursor()
         
-        # 解析参数文件
+        # Parse parameter file
         params = {}
         with open(parameter_dest, 'r') as f:
             for line in f:
@@ -121,7 +122,7 @@ def create_task(zip_path, name):
                     key, value = line.strip().split('=')
                     params[key.strip()] = value.strip()
         
-        # 插入主任务记录
+        # Insert main task record
         execute_update('''
             INSERT INTO tasks (
                 id, status,
@@ -137,7 +138,7 @@ def create_task(zip_path, name):
             int(params.get('num_modes', 9)), float(params.get('energy_range', 3)), int(params.get('cpu', 1))
         ))
         
-        # 创建任务特定的配体表
+        # Create task-specific ligand table
         execute_update(f'''
             CREATE TABLE IF NOT EXISTS task_{name}_ligands (
                 ligand_id VARCHAR(255) PRIMARY KEY,
@@ -149,9 +150,9 @@ def create_task(zip_path, name):
             )
         ''')
         
-        # 添加配体记录
+        # Add ligand records
         for ligand_file in ligand_files:
-            # 直接使用文件名（不含扩展名）作为 ligand_id
+            # Use file name (without extension) as ligand_id
             ligand_id = ligand_file.stem
             ligand_dest = ligands_dir / ligand_file.name
             ligand_file.rename(ligand_dest)
@@ -164,30 +165,30 @@ def create_task(zip_path, name):
         conn.commit()
         conn.close()
         
-        print(f"成功创建任务 {name}")
+        print(f"Task {name} created successfully")
         
     except Exception as e:
-        print(f"错误：{str(e)}")
+        print(f"Error: {str(e)}")
     finally:
-        # 清理临时目录
+        # Clean up temporary directory
         if temp_dir.exists():
             import shutil
             shutil.rmtree(temp_dir)
 
 def remove_task(task_id):
     try:
-        # 检查任务是否存在
+        # Check if the task exists
         if not execute_query('SELECT id FROM tasks WHERE id = %s', (task_id,), fetch_one=True):
-            print(f"错误：找不到任务 {task_id}")
+            print(f"Error: Task {task_id} not found")
             return
         
-        # 删除任务记录
+        # Delete task record
         execute_update('DELETE FROM tasks WHERE id = %s', (task_id,))
         
-        # 删除任务的配体表
+        # Delete task-specific ligand table
         execute_update(f'DROP TABLE IF EXISTS task_{task_id}_ligands')
         
-        # 删除任务相关文件
+        # Delete task-related files
         task_dir = Path('tasks') / task_id
         result_dir = Path('results') / task_id
         
@@ -197,54 +198,54 @@ def remove_task(task_id):
         if result_dir.exists():
             shutil.rmtree(result_dir)
             
-        print(f"成功删除任务 {task_id}")
+        print(f"Task {task_id} deleted successfully")
         
     except Exception as e:
-        print(f"删除任务时出错：{str(e)}")
+        print(f"Error deleting task: {str(e)}")
 
 def pause_task(task_id):
     try:
-        # 检查任务是否存在
+        # Check if the task exists
         task = execute_query('SELECT status FROM tasks WHERE id = %s', (task_id,), fetch_one=True)
         if not task:
-            print(f"错误：找不到任务 {task_id}")
+            print(f"Error: Task {task_id} not found")
             return
         
         current_status = task['status']
         new_status = 'paused' if current_status == 'pending' else 'pending'
         
-        # 更新任务状态
+        # Update task status
         execute_update('UPDATE tasks SET status = %s WHERE id = %s', (new_status, task_id))
         
-        action = '暂停' if new_status == 'paused' else '恢复'
-        print(f"成功{action}任务 {task_id}")
+        action = 'Paused' if new_status == 'paused' else 'Resumed'
+        print(f"Task {task_id} {action} successfully")
         
     except Exception as e:
-        print(f"更新任务状态时出错：{str(e)}")
+        print(f"Error updating task status: {str(e)}")
 
 def set_server_password(password):
     try:
-        # 生成密码哈希
+        # Generate password hash
         import bcrypt
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
         
-        # 清除旧的认证信息
+        # Clear old authentication information
         execute_update('DELETE FROM server_auth')
         
-        # 插入新的认证信息
+        # Insert new authentication information
         execute_update('''
             INSERT INTO server_auth (password_hash)
             VALUES (%s)
         ''', (password_hash.decode('utf-8'),))
         
-        print("服务器密码设置成功")
+        print("Server password set successfully")
         
     except Exception as e:
-        print(f"设置密码时出错：{str(e)}")
+        print(f"Error setting password: {str(e)}")
 
 def reset_node_heartbeats():
     try:
-        # 删除并重新创建node_heartbeats表
+        # Drop and recreate node_heartbeats table
         execute_update('DROP TABLE IF EXISTS node_heartbeats')
         execute_update('''
             CREATE TABLE IF NOT EXISTS node_heartbeats (
@@ -258,18 +259,18 @@ def reset_node_heartbeats():
                 INDEX idx_last_heartbeat (last_heartbeat)
             )
         ''')
-        print("计算节点心跳表已重置")
+        print("Node heartbeats table reset successfully")
     except Exception as e:
-        print(f"重置计算节点心跳表时出错：{str(e)}")
+        print(f"Error resetting node heartbeats table: {str(e)}")
 
 def reset_processing_tasks():
     try:
-        # 获取所有任务
+        # Get all tasks
         tasks = execute_query('SELECT id FROM tasks')
         
         for task in tasks:
             task_id = task['id']
-            # 更新配体表中的处理中状态为待处理
+            # Update ligand table status from processing to pending
             execute_update(f'''
                 UPDATE task_{task_id}_ligands 
                 SET status = 'pending', 
@@ -277,7 +278,7 @@ def reset_processing_tasks():
                 WHERE status = 'processing'
             ''')
             
-            # 更新主任务表中的状态
+            # Update main task table status
             execute_update('''
                 UPDATE tasks 
                 SET status = 'pending', 
@@ -285,19 +286,19 @@ def reset_processing_tasks():
                 WHERE id = %s
             ''', (task_id,))
         
-        print("已将所有处理中的任务重置为待处理状态")
+        print("All processing tasks reset to pending status")
         
     except Exception as e:
-        print(f"重置任务状态时出错：{str(e)}")
+        print(f"Error resetting task status: {str(e)}")
         
 def reset_failed_tasks():
     try:
-        # 获取所有任务
+        # Get all tasks
         tasks = execute_query('SELECT id FROM tasks')
         
         for task in tasks:
             task_id = task['id']
-            # 更新配体表中的处理中状态为待处理
+            # Update ligand table status from failed to pending
             execute_update(f'''
                 UPDATE task_{task_id}_ligands 
                 SET status = 'pending', 
@@ -305,7 +306,7 @@ def reset_failed_tasks():
                 WHERE status = 'failed'
             ''')
             
-            # 更新主任务表中的状态
+            # Update main task table status
             execute_update('''
                 UPDATE tasks 
                 SET status = 'pending', 
@@ -313,26 +314,26 @@ def reset_failed_tasks():
                 WHERE id = %s
             ''', (task_id,))
         
-        print("已将所有失败的任务重置为待处理状态")
+        print("All failed tasks reset to pending status")
         
     except Exception as e:
-        print(f"重置任务状态时出错：{str(e)}")
+        print(f"Error resetting task status: {str(e)}")
 
 def main():
-    parser = argparse.ArgumentParser(description='分子对接任务管理工具')
-    parser.add_argument('-ls', action='store_true', help='列出所有任务')
-    parser.add_argument('-zip', help='要提交的任务ZIP文件路径')
-    parser.add_argument('-name', help='任务名称')
-    parser.add_argument('-rm', help='删除指定的任务')
-    parser.add_argument('-pause', help='暂停/恢复指定的任务')
-    parser.add_argument('-set-password', help='设置服务器密码')
-    parser.add_argument('-reset-heartbeats', action='store_true', help='重置计算节点心跳表')
-    parser.add_argument('-reset-processing', action='store_true', help='将所有处理中的任务重置为待处理状态')
-    parser.add_argument('-reset-failed', action='store_true', help='将所有失败的任务重置为待处理状态')
+    parser = argparse.ArgumentParser(description='Molecular Docking Task Management Tool')
+    parser.add_argument('-ls', action='store_true', help='List all tasks')
+    parser.add_argument('-zip', help='Path to the task ZIP file to submit')
+    parser.add_argument('-name', help='Task name')
+    parser.add_argument('-rm', help='Delete specified task')
+    parser.add_argument('-pause', help='Pause/Resume specified task')
+    parser.add_argument('-set-password', help='Set server password')
+    parser.add_argument('-reset-heartbeats', action='store_true', help='Reset node heartbeats table')
+    parser.add_argument('-reset-processing', action='store_true', help='Reset all processing tasks to pending status')
+    parser.add_argument('-reset-failed', action='store_true', help='Reset all failed tasks to pending status')
     
     args = parser.parse_args()
     
-    # 确保数据库和必要目录存在
+    # Ensure database and necessary directories exist
     init_db()
     os.makedirs('tasks', exist_ok=True)
     
