@@ -3,7 +3,7 @@
 require_once __DIR__ . '/includes/db_connect.php';
 require_once __DIR__ . '/includes/data_functions.php';
 
-// 获取所有监控数据
+// Retrieve all monitoring data
 $tasksProgress = getTasksProgress($conn);
 $nodePerformance = getNodePerformance($conn);
 $nodeStats = getNodeStats($conn);
@@ -15,62 +15,62 @@ $conn->close();
 ?>
 
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VortexDock - 数据监控</title>
+    <title>VortexDock - Data Monitoring</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="css/styles.css" rel="stylesheet">
 </head>
 <body class="bg-light">
     <div class="container py-4">
-        <h1 class="mb-4 text-primary">VortexDock 数据监控</h1>
+        <h1 class="mb-4 text-primary">VortexDock Data Monitoring</h1>
         
-        <!-- 系统状态概览 -->
+        <!-- System Status Overview -->
         <div class="row mb-4">
             <div class="col-md-3">
                 <div class="stats-card text-center">
                     <div class="stats-value"><?= $nodeStats['online'] ?>/<?= $nodeStats['total'] ?></div>
-                    <div class="stats-label">在线节点数</div>
+                    <div class="stats-label">Online Nodes</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card text-center">
                     <div class="stats-value"><?= $nodeStats['avg_cpu_usage'] ?>%</div>
-                    <div class="stats-label">平均CPU使用率</div>
+                    <div class="stats-label">Average CPU Usage</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card text-center">
-                    <div class="stats-value"><?= $performanceStats['avg_processing_time'] ?>分钟</div>
-                    <div class="stats-label">平均处理时间</div>
+                    <div class="stats-value"><?= $performanceStats['avg_processing_time'] ?> minutes</div>
+                    <div class="stats-label">Average Processing Time</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card text-center">
                     <div class="stats-value"><?= $performanceStats['success_rate'] ?>%</div>
-                    <div class="stats-label">任务成功率</div>
+                    <div class="stats-label">Task Success Rate</div>
                 </div>
             </div>
         </div>
 
-        <!-- 任务进度卡片 -->
+        <!-- Task Progress Cards -->
         <div class="row">
             <div class="col-12 mb-4">
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
-                        <h5 class="card-title mb-0 text-primary">任务进度</h5>
+                        <h5 class="card-title mb-0 text-primary">Task Progress</h5>
                     </div>
                     <div class="card-body">
                         <?php foreach ($tasksProgress as $task): ?>
                             <div class="mb-3">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="fw-bold">任务 <?= htmlspecialchars($task['id']) ?></span>
+                                    <span class="fw-bold">Task <?= htmlspecialchars($task['id']) ?></span>
                                     <div class="text-end">
                                         <span class="text-muted"><?= $task['completed'] ?>/<?= $task['total'] ?></span>
                                         <?php if ($task['estimated_time']): ?>
-                                            <span class="ms-2 text-info">预计<?= $task['estimated_time'] ?>后完成</span>
+                                            <span class="ms-2 text-info">Estimated completion in <?= $task['estimated_time'] ?></span>
                                         <?php endif; ?>
                                     </div>
                                 </div>
@@ -88,11 +88,11 @@ $conn->close();
                 </div>
             </div>
 
-            <!-- 任务队列状态分布 -->
+            <!-- Task Queue Status Distribution -->
             <div class="col-md-6 mb-4">
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
-                        <h5 class="card-title mb-0 text-primary">任务队列状态分布</h5>
+                        <h5 class="card-title mb-0 text-primary">Task Queue Status Distribution</h5>
                     </div>
                     <div class="card-body">
                         <div class="chart-container">
@@ -102,11 +102,11 @@ $conn->close();
                 </div>
             </div>
 
-            <!-- 系统吞吐量趋势 -->
+            <!-- System Throughput Trend -->
             <div class="col-md-6 mb-4">
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
-                        <h5 class="card-title mb-0 text-primary">系统吞吐量趋势</h5>
+                        <h5 class="card-title mb-0 text-primary">System Throughput Trend</h5>
                     </div>
                     <div class="card-body">
                         <div class="chart-container">
@@ -116,11 +116,11 @@ $conn->close();
                 </div>
             </div>
 
-            <!-- 计算节点性能 -->
+            <!-- Compute Node Performance -->
             <div class="col-12">
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
-                        <h5 class="card-title mb-0 text-primary">计算节点性能</h5>
+                        <h5 class="card-title mb-0 text-primary">Compute Node Performance</h5>
                     </div>
                     <div class="card-body">
                         <div class="row g-4">
@@ -144,11 +144,11 @@ $conn->close();
                 </div>
             </div>
 
-            <!-- 节点CPU使用率趋势 -->
+            <!-- Node CPU Usage Trend -->
             <div class="col-12">
                 <div class="card dashboard-card">
                     <div class="card-header bg-white">
-                        <h5 class="card-title mb-0 text-primary">节点CPU使用率趋势</h5>
+                        <h5 class="card-title mb-0 text-primary">Node CPU Usage Trend</h5>
                     </div>
                     <div class="card-body">
                         <div class="chart-container">
@@ -160,7 +160,7 @@ $conn->close();
         </div>
     </div>
 
-    <!-- 数据存储元素 -->
+    <!-- Data Storage Element -->
     <div id="chart-data" 
          data-queue-status='<?= htmlspecialchars(json_encode($queueStats), ENT_QUOTES, 'UTF-8') ?>'
          data-throughput='<?= htmlspecialchars(json_encode($performanceStats['throughput']), ENT_QUOTES, 'UTF-8') ?>'
@@ -169,6 +169,7 @@ $conn->close();
          data-minute='<?= htmlspecialchars(json_encode($nodePerformance['minute']), ENT_QUOTES, 'UTF-8') ?>'
          data-cpu-trend='<?= htmlspecialchars(json_encode($nodeCpuTrend), ENT_QUOTES, 'UTF-8') ?>'>
     </div>
+    <!-- End of Data Storage Element -->
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment"></script>
@@ -182,22 +183,22 @@ $conn->close();
                 url: 'includes/get_monitor_data.php',
                 method: 'GET',
                 success: function(data) {
-                    // 更新统计卡片
+                    // Update statistics cards
                     $('.stats-value').eq(0).text(data.nodeStats.online + '/' + data.nodeStats.total);
                     $('.stats-value').eq(1).text(data.nodeStats.avg_cpu_usage + '%');
-                    $('.stats-value').eq(2).text(data.performanceStats.avg_processing_time + '分钟');
+                    $('.stats-value').eq(2).text(data.performanceStats.avg_processing_time + ' minutes');
                     $('.stats-value').eq(3).text(data.performanceStats.success_rate + '%');
 
-                    // 更新任务进度
+                    // Update task progress
                     let taskHtml = '';
                     data.tasksProgress.forEach(task => {
                         taskHtml += `
                             <div class="mb-3">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="fw-bold">任务 ${task.id}</span>
+                                    <span class="fw-bold">Task ${task.id}</span>
                                     <div class="text-end">
                                         <span class="text-muted">${task.completed}/${task.total}</span>
-                                        ${task.estimated_time ? `<span class="ms-2 text-info">预计${task.estimated_time}后完成</span>` : ''}
+                                        ${task.estimated_time ? `<span class="ms-2 text-info">Estimated completion in ${task.estimated_time}</span>` : ''}
                                     </div>
                                 </div>
                                 <div class="progress">
@@ -212,16 +213,16 @@ $conn->close();
                     });
                     $('.card-body').first().html(taskHtml);
 
-                    // 更新图表数据
+                    // Update chart data
                     updateCharts(data);
                 },
                 error: function(xhr, status, error) {
-                    console.error('获取数据失败:', error);
+                    console.error('Failed to fetch data:', error);
                 }
             });
         }
 
-        // 每10秒更新一次数据
+        // Update data every 10 seconds
         setInterval(updateDashboard, 10000);
     });
     </script>

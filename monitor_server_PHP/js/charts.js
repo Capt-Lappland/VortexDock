@@ -1,16 +1,16 @@
 // monitor/js/charts.js
 
-// 严格模式
+// Strict mode
 'use strict';
 
-// 从DOM获取数据
+// Get data from DOM
 const chartDataElement = document.getElementById('chart-data');
 if (!chartDataElement) {
-    console.error('无法找到chart-data元素');
-    throw new Error('chart-data元素不存在');
+    console.error('Cannot find chart-data element');
+    throw new Error('chart-data element does not exist');
 }
 
-// 存储图表实例
+// Store chart instances
 let charts = {
     queueStatus: null,
     throughput: null,
@@ -31,18 +31,18 @@ try {
         cpuTrend: JSON.parse(chartDataElement.dataset.cpuTrend || '[]')
     };
 } catch (error) {
-    console.error('解析图表数据失败:', error);
+    console.error('Failed to parse chart data:', error);
     throw error;
 }
 
-// Chart.js 全局配置
+// Chart.js global configuration
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial';
 Chart.defaults.font.size = 12;
 Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(0, 0, 0, 0.8)';
 Chart.defaults.plugins.tooltip.padding = 10;
 Chart.defaults.plugins.tooltip.cornerRadius = 6;
 
-// 通用图表配置
+// General chart configuration
 const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -89,12 +89,12 @@ const chartOptions = {
     }
 };
 
-// 初始化队列状态饼图
+// Initialize queue status pie chart
 function initQueueStatusChart() {
     return new Chart(document.getElementById('queueStatusChart'), {
         type: 'pie',
         data: {
-            labels: ['待处理', '处理中', '已完成', '失败'],
+            labels: ['Pending', 'Processing', 'Completed', 'Failed'],
             datasets: [{
                 data: [
                     chartData.queueStatus.pending,
@@ -115,7 +115,7 @@ function initQueueStatusChart() {
     });
 }
 
-// 初始化吞吐量趋势图
+// Initialize throughput trend chart
 function initThroughputChart() {
     if (chartData.throughput.length === 0) return null;
 
@@ -124,7 +124,7 @@ function initThroughputChart() {
         data: {
             labels: chartData.throughput.map(item => item.time_slot),
             datasets: [{
-                label: '系统吞吐量',
+                label: 'System Throughput',
                 data: chartData.throughput.map(item => parseInt(item.total_count)),
                 borderColor: 'rgba(75, 192, 192, 1)',
                 backgroundColor: context => {
@@ -159,7 +159,7 @@ function initThroughputChart() {
     });
 }
 
-// 初始化性能图表组
+// Initialize performance charts group
 function initPerformanceCharts() {
     const charts = {
         daily: null,
@@ -167,14 +167,14 @@ function initPerformanceCharts() {
         minute: null
     };
 
-    // 每日性能柱状图
+    // Daily performance bar chart
     if (chartData.daily.length > 0) {
         charts.daily = new Chart(document.getElementById('dailyPerformanceChart'), {
             type: 'bar',
             data: {
                 labels: chartData.daily.map(item => item.date),
                 datasets: [{
-                    label: '每日完成任务数',
+                    label: 'Tasks Completed Daily',
                     data: chartData.daily.map(item => item.completed_tasks),
                     backgroundColor: '#2196F3'
                 }]
@@ -183,14 +183,14 @@ function initPerformanceCharts() {
         });
     }
 
-    // 每小时性能折线图
+    // Hourly performance line chart
     if (chartData.hourly.length > 0) {
         charts.hourly = new Chart(document.getElementById('hourlyPerformanceChart'), {
             type: 'line',
             data: {
                 labels: chartData.hourly.map(item => item.hour),
                 datasets: [{
-                    label: '每小时完成任务数',
+                    label: 'Tasks Completed Hourly',
                     data: chartData.hourly.map(item => item.completed_tasks),
                     borderColor: '#4CAF50',
                     backgroundColor: 'rgba(76, 175, 80, 0.1)',
@@ -201,14 +201,14 @@ function initPerformanceCharts() {
         });
     }
 
-    // 每分钟性能折线图
+    // Minute performance line chart
     if (chartData.minute.length > 0) {
         charts.minute = new Chart(document.getElementById('minutePerformanceChart'), {
             type: 'line',
             data: {
                 labels: chartData.minute.map(item => item.minute),
                 datasets: [{
-                    label: '每5分钟完成任务数',
+                    label: 'Tasks Completed Every 5 Minutes',
                     data: chartData.minute.map(item => item.completed_tasks),
                     borderColor: '#FF9800',
                     backgroundColor: 'rgba(255, 152, 0, 0.1)',
@@ -222,39 +222,39 @@ function initPerformanceCharts() {
     return charts;
 }
 
-// 预定义的高对比度颜色组合
+// Predefined high-contrast color combinations
 const predefinedColors = [
-    '#FF6B6B',  // 鲜红色
-    '#4ECDC4',  // 青绿色
-    '#45B7D1',  // 天蓝色
-    '#96CEB4',  // 薄荷绿
-    '#FFD93D',  // 明黄色
-    '#6C5CE7',  // 靛蓝色
-    '#A8E6CF',  // 浅绿色
-    '#FF8B94',  // 粉红色
-    '#A3A1FF',  // 淡紫色
-    '#FFDAC1'   // 杏色
+    '#FF6B6B',  // Bright Red
+    '#4ECDC4',  // Aqua Green
+    '#45B7D1',  // Sky Blue
+    '#96CEB4',  // Mint Green
+    '#FFD93D',  // Bright Yellow
+    '#6C5CE7',  // Indigo
+    '#A8E6CF',  // Light Green
+    '#FF8B94',  // Pink
+    '#A3A1FF',  // Light Purple
+    '#FFDAC1'   // Apricot
 ];
 
-// 生成颜色
+// Generate color
 function generateColor(index) {
     return predefinedColors[index % predefinedColors.length];
 }
 
-// 绘制节点CPU使用率趋势图
+// Draw node CPU usage trend chart
 function initNodeCpuTrendChart() {
     const chartElement = document.getElementById('nodeCpuTrendChart');
     if (!chartElement) return null;
 
     const cpuTrendData = chartData.cpuTrend;
     if (!cpuTrendData || cpuTrendData.length === 0) {
-        console.warn('CPU趋势数据为空');
+        console.warn('CPU trend data is empty');
         return null;
     }
 
-    // 准备数据集
+    // Prepare datasets
     const datasets = cpuTrendData.map((node, index) => ({
-        label: `节点 ${node.node}`,
+        label: `Node ${node.node}`,
         data: Object.entries(node.data).map(([time, value]) => ({
             x: new Date(time).getTime(),
             y: parseFloat(value)
@@ -281,7 +281,7 @@ function initNodeCpuTrendChart() {
             plugins: {
                 title: {
                     display: true,
-                    text: '最近一小时CPU使用率趋势',
+                    text: 'CPU Usage Trend in the Last Hour',
                     font: {
                         size: 14
                     }
@@ -320,7 +320,7 @@ function initNodeCpuTrendChart() {
                     max: 100,
                     title: {
                         display: true,
-                        text: 'CPU使用率 (%)',
+                        text: 'CPU Usage (%)',
                         font: {
                             size: 12
                         }
@@ -331,7 +331,7 @@ function initNodeCpuTrendChart() {
     });
 }
 
-// 页面加载初始化
+// Page load initialization
 document.addEventListener('DOMContentLoaded', () => {
     try {
         charts.queueStatus = initQueueStatusChart();
@@ -342,14 +342,14 @@ document.addEventListener('DOMContentLoaded', () => {
         charts.minute = performanceCharts.minute;
         charts.cpuTrend = initNodeCpuTrendChart();
     } catch (error) {
-        console.error('图表初始化失败:', error);
+        console.error('Failed to initialize charts:', error);
     }
 });
 
-// 更新图表数据
+// Update chart data
 function updateCharts(data) {
     try {
-        // 更新图表数据
+        // Update chart data
         chartData = {
             queueStatus: data.queueStats || {},
             throughput: data.performanceStats.throughput || [],
@@ -359,7 +359,7 @@ function updateCharts(data) {
             cpuTrend: data.nodeCpuTrend || []
         };
 
-        // 更新队列状态图表
+        // Update queue status chart
         if (charts.queueStatus) {
             charts.queueStatus.data.datasets[0].data = [
                 chartData.queueStatus.pending,
@@ -370,38 +370,38 @@ function updateCharts(data) {
             charts.queueStatus.update('none');
         }
 
-        // 更新吞吐量趋势图表
+        // Update throughput trend chart
         if (charts.throughput && chartData.throughput.length > 0) {
             charts.throughput.data.labels = chartData.throughput.map(item => item.time_slot);
             charts.throughput.data.datasets[0].data = chartData.throughput.map(item => parseInt(item.total_count));
             charts.throughput.update('none');
         }
 
-        // 更新每日性能图表
+        // Update daily performance chart
         if (charts.daily && chartData.daily.length > 0) {
             charts.daily.data.labels = chartData.daily.map(item => item.date);
             charts.daily.data.datasets[0].data = chartData.daily.map(item => item.completed_tasks);
             charts.daily.update('none');
         }
 
-        // 更新每小时性能图表
+        // Update hourly performance chart
         if (charts.hourly && chartData.hourly.length > 0) {
             charts.hourly.data.labels = chartData.hourly.map(item => item.hour);
             charts.hourly.data.datasets[0].data = chartData.hourly.map(item => item.completed_tasks);
             charts.hourly.update('none');
         }
 
-        // 更新每分钟性能图表
+        // Update minute performance chart
         if (charts.minute && chartData.minute.length > 0) {
             charts.minute.data.labels = chartData.minute.map(item => item.minute);
             charts.minute.data.datasets[0].data = chartData.minute.map(item => item.completed_tasks);
             charts.minute.update('none');
         }
 
-        // 更新CPU趋势图表
+        // Update CPU trend chart
         if (charts.cpuTrend && chartData.cpuTrend.length > 0) {
             const datasets = chartData.cpuTrend.map((node, index) => ({
-                label: `节点 ${node.node}`,
+                label: `Node ${node.node}`,
                 data: Object.entries(node.data).map(([time, value]) => ({
                     x: new Date(time).getTime(),
                     y: parseFloat(value)
@@ -415,6 +415,6 @@ function updateCharts(data) {
             charts.cpuTrend.update('none');
         }
     } catch (error) {
-        console.error('更新图表数据失败:', error);
+        console.error('Failed to update chart data:', error);
     }
 }
