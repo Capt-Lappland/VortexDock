@@ -58,10 +58,10 @@ def configure():
     # Write configuration to config.py file
     with open('config.py', 'w', encoding='utf-8') as config_file:
         config_file.write("# -*- coding: utf-8 -*-\n\n")
-        config_file.write("DB_CONFIG = " + json.dumps(config['DB_CONFIG'], indent=4, ensure_ascii=False) + "\n\n")
-        config_file.write("SERVER_CONFIG = " + json.dumps(config['SERVER_CONFIG'], indent=4, ensure_ascii=False) + "\n\n")
-        config_file.write("TASK_CONFIG = " + json.dumps(config['TASK_CONFIG'], indent=4, ensure_ascii=False) + "\n\n")
-        config_file.write("PROCESS_CONFIG = " + json.dumps(config['PROCESS_CONFIG'], indent=4, ensure_ascii=False) + "\n\n")
+        config_file.write("DB_CONFIG = " + json.dumps(config['DB_CONFIG'], indent=4, ensure_ascii=False).replace('true', 'True').replace('false', 'False') + "\n\n")
+        config_file.write("SERVER_CONFIG = " + json.dumps(config['SERVER_CONFIG'], indent=4, ensure_ascii=False).replace('true', 'True').replace('false', 'False') + "\n\n")
+        config_file.write("TASK_CONFIG = " + json.dumps(config['TASK_CONFIG'], indent=4, ensure_ascii=False).replace('true', 'True').replace('false', 'False') + "\n\n")
+        config_file.write("PROCESS_CONFIG = " + json.dumps(config['PROCESS_CONFIG'], indent=4, ensure_ascii=False).replace('true', 'True').replace('false', 'False') + "\n\n")
         config_file.write("DEBUG = " + str(config['DEBUG']) + "\n")
 
     print("\nConfiguration has been saved to config.py file")
