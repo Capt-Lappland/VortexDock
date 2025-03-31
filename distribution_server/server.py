@@ -10,11 +10,11 @@ from datetime import datetime, timedelta
 from flask import Flask, request, send_file
 from werkzeug.utils import secure_filename
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils.db import init_connection_pool, init_database, execute_query, execute_update
+sys.path.append('..')
+from utils.db import init_connection_pool, init_database, execute_query, execute_update, get_db_connection
 from utils.logger import logger
 from utils.network import SSLContextManager, SecureSocket
-from config import SERVER_CONFIG, TASK_CONFIG
+from config import SERVER_CONFIG, TASK_CONFIG, DB_CONFIG
 
 app = Flask(__name__)
 
@@ -28,12 +28,15 @@ TASK_TIMEOUT = 300
 db_initialized = False
 
 def init_db():
-    """初始化数据库连接池和表结构"""
+    """Initialize the database connection pool and table structure"""
     global db_initialized
     if not db_initialized:
         try:
-            init_connection_pool()
-            init_database()
+            if DB_CONFIG['type'] == 'sqlite':
+                init_database()  # SQLite does not use connection pooling
+            else:
+                init_connection_pool()
+                init_database()
             db_initialized = True
             logger.info("Database initialized successfully")
         except Exception as e:
@@ -48,22 +51,30 @@ def check_timeout_tasks():
             
             # 获取所有未完成的任务
             tasks = execute_query("SELECT id FROM tasks WHERE status NOT IN ('completed', 'failed')")
+            if not tasks:
+                logger.debug("No tasks to check for timeout")
+                time.sleep(60)
+                continue
+            
             for task in tasks:
-                task_id = task['id']
+                task_id = task[0] if DB_CONFIG['type'] == 'sqlite' else task['id']
                 
                 # 检查超时的配体（包含失败状态的配体）
                 ligands = execute_query(f"""
-                    SELECT ligand_id, status, COUNT(*) as retry_count
+                    SELECT ligand_id, status, retry_count
                     FROM task_{task_id}_ligands
                     WHERE status IN ('processing', 'failed')
                     AND last_updated < %s
-                    GROUP BY ligand_id, status
                 """, (timeout_time,))
                 
+                if not ligands:
+                    logger.debug(f"No ligands to check for timeout in task {task_id}")
+                    continue
+                
                 for ligand in ligands:
-                    ligand_id = ligand['ligand_id']
-                    status = ligand['status']
-                    retry_count = ligand['retry_count']
+                    ligand_id = ligand[0] if DB_CONFIG['type'] == 'sqlite' else ligand['ligand_id']
+                    status = ligand[1] if DB_CONFIG['type'] == 'sqlite' else ligand['status']
+                    retry_count = ligand[2] if DB_CONFIG['type'] == 'sqlite' else ligand['retry_count']
                     
                     # 失败次数超过阈值则标记为最终失败
                     if retry_count >= TASK_CONFIG['max_retries']:
@@ -87,10 +98,17 @@ def check_timeout_tasks():
                     SELECT COUNT(*) as count 
                     FROM task_{task_id}_ligands 
                     WHERE status NOT IN ('completed', 'failed')
-                """, fetch_one=True)['count']
+                """, fetch_one=True)
+                remaining = remaining[0] if DB_CONFIG['type'] == 'sqlite' else remaining.get('count', 0)
                 
                 if remaining == 0:
                     execute_update("UPDATE tasks SET status = 'completed' WHERE id = %s", (task_id,))
+            
+            # 提交事务（仅适用于 SQLite）
+            if DB_CONFIG['type'] == 'sqlite':
+                conn = get_db_connection()
+                conn.commit()
+                conn.close()
 
         except Exception as e:
             logger.error(f"Error checking timeout tasks: {e}")
