@@ -14,12 +14,9 @@ sys.path.append('..')
 from utils.db import init_connection_pool, init_database, execute_query, execute_update, get_db_connection
 from utils.logger import logger
 from utils.network import SSLContextManager, SecureSocket
-from config import SERVER_CONFIG, TASK_CONFIG, DB_CONFIG
+from config import SERVER_CONFIG, TASK_CONFIG, DB_CONFIG, DEBUG
 
 app = Flask(__name__)
-
-# 全局调试开关
-DEBUG = True
 
 # 任务超时时间（秒）
 TASK_TIMEOUT = 300
