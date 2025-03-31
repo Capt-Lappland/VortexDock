@@ -6,30 +6,50 @@ from pathlib import Path
 
 sys.path.append('..')
 from utils.db import execute_query, execute_update, get_db_connection
+from config import DB_CONFIG
 
 def init_db():
+    """Initialize the database"""
     conn = get_db_connection()
     c = conn.cursor()
-    
-    # Create main task table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id VARCHAR(255) PRIMARY KEY,
-            status VARCHAR(50),
-            center_x FLOAT,
-            center_y FLOAT,
-            center_z FLOAT,
-            size_x FLOAT,
-            size_y FLOAT,
-            size_z FLOAT,
-            num_modes INT,
-            energy_range FLOAT,
-            cpu INT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
+    if DB_CONFIG['type'] == 'sqlite':
+        # SQLite-specific table creation
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                center_x REAL,
+                center_y REAL,
+                center_z REAL,
+                size_x REAL,
+                size_y REAL,
+                size_z REAL,
+                num_modes INTEGER,
+                energy_range REAL,
+                cpu INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    else:
+        # MySQL-specific table creation
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id VARCHAR(255) PRIMARY KEY,
+                status VARCHAR(50),
+                center_x FLOAT,
+                center_y FLOAT,
+                center_z FLOAT,
+                size_x FLOAT,
+                size_y FLOAT,
+                size_z FLOAT,
+                num_modes INT,
+                energy_range FLOAT,
+                cpu INT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
     conn.commit()
     conn.close()
 
@@ -75,7 +95,7 @@ def create_task(zip_path, name):
         print(f"Error: File {zip_path} not found")
         return
     
-    if execute_query('SELECT id FROM tasks WHERE id = %s', (name,), fetch_one=True):
+    if execute_query('SELECT id FROM tasks WHERE id = ?', (name,), fetch_one=True):
         print(f"Error: Task name '{name}' already exists, please use a different name.")
         return
     
@@ -130,7 +150,7 @@ def create_task(zip_path, name):
                 size_x, size_y, size_z,
                 num_modes, energy_range, cpu
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             name, 'pending',
             float(params.get('center_x', 0)), float(params.get('center_y', 0)), float(params.get('center_z', 0)),
@@ -159,7 +179,7 @@ def create_task(zip_path, name):
             
             execute_update(f'''
                 INSERT INTO task_{name}_ligands (ligand_id, ligand_file)
-                VALUES (%s, %s)
+                VALUES (?, ?)
             ''', (ligand_id, ligand_file.name))
         
         conn.commit()
@@ -178,12 +198,12 @@ def create_task(zip_path, name):
 def remove_task(task_id):
     try:
         # Check if the task exists
-        if not execute_query('SELECT id FROM tasks WHERE id = %s', (task_id,), fetch_one=True):
+        if not execute_query('SELECT id FROM tasks WHERE id = ?', (task_id,), fetch_one=True):
             print(f"Error: Task {task_id} not found")
             return
         
         # Delete task record
-        execute_update('DELETE FROM tasks WHERE id = %s', (task_id,))
+        execute_update('DELETE FROM tasks WHERE id = ?', (task_id,))
         
         # Delete task-specific ligand table
         execute_update(f'DROP TABLE IF EXISTS task_{task_id}_ligands')
@@ -206,7 +226,7 @@ def remove_task(task_id):
 def pause_task(task_id):
     try:
         # Check if the task exists
-        task = execute_query('SELECT status FROM tasks WHERE id = %s', (task_id,), fetch_one=True)
+        task = execute_query('SELECT status FROM tasks WHERE id = ?', (task_id,), fetch_one=True)
         if not task:
             print(f"Error: Task {task_id} not found")
             return
@@ -215,7 +235,7 @@ def pause_task(task_id):
         new_status = 'paused' if current_status == 'pending' else 'pending'
         
         # Update task status
-        execute_update('UPDATE tasks SET status = %s WHERE id = %s', (new_status, task_id))
+        execute_update('UPDATE tasks SET status = ? WHERE id = ?', (new_status, task_id))
         
         action = 'Paused' if new_status == 'paused' else 'Resumed'
         print(f"Task {task_id} {action} successfully")
@@ -235,7 +255,7 @@ def set_server_password(password):
         # Insert new authentication information
         execute_update('''
             INSERT INTO server_auth (password_hash)
-            VALUES (%s)
+            VALUES (?)
         ''', (password_hash.decode('utf-8'),))
         
         print("Server password set successfully")
@@ -283,7 +303,7 @@ def reset_processing_tasks():
                 UPDATE tasks 
                 SET status = 'pending', 
                     last_updated = CURRENT_TIMESTAMP 
-                WHERE id = %s
+                WHERE id = ?
             ''', (task_id,))
         
         print("All processing tasks reset to pending status")
@@ -311,7 +331,7 @@ def reset_failed_tasks():
                 UPDATE tasks 
                 SET status = 'pending', 
                     last_updated = CURRENT_TIMESTAMP 
-                WHERE id = %s
+                WHERE id = ?
             ''', (task_id,))
         
         print("All failed tasks reset to pending status")
